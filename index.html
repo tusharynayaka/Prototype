@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>501BH · Control Room</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          "on-tertiary-fixed": "#2a1700", "primary-fixed-dim": "#bec6e0",
+          "surface-bright": "#fcf8fa", "on-tertiary-container": "#b87500",
+          "on-secondary-fixed": "#001a42", "surface-container": "#f0edef",
+          "surface-dim": "#dcd9db", "background": "#fcf8fa",
+          "on-secondary-container": "#fefcff", "surface-container-lowest": "#ffffff",
+          "on-primary": "#ffffff", "inverse-on-surface": "#f3f0f2",
+          "on-surface": "#1b1b1d", "primary-container": "#131b2e",
+          "outline-variant": "#c6c6cd", "secondary-container": "#2170e4",
+          "on-primary-fixed": "#131b2e", "outline": "#76777d",
+          "on-surface-variant": "#45464d", "tertiary-fixed-dim": "#ffb95f",
+          "tertiary-container": "#2a1700", "tertiary": "#000000",
+          "on-background": "#1b1b1d", "secondary": "#0058be",
+          "error-container": "#ffdad6", "surface-container-low": "#f6f3f5",
+          "on-secondary-fixed-variant": "#004395", "secondary-fixed": "#d8e2ff",
+          "inverse-surface": "#303032", "on-error": "#ffffff",
+          "on-secondary": "#ffffff", "surface-container-high": "#eae7e9",
+          "primary": "#000000", "primary-fixed": "#dae2fd",
+          "tertiary-fixed": "#ffddb8", "on-error-container": "#93000a",
+          "on-tertiary-fixed-variant": "#653e00", "surface": "#fcf8fa",
+          "surface-container-highest": "#e4e2e4", "surface-variant": "#e4e2e4",
+          "secondary-fixed-dim": "#adc6ff", "error": "#ba1a1a",
+          "on-tertiary": "#ffffff",
+        },
+        borderRadius: { DEFAULT: "0.125rem", lg: "0.25rem", xl: "0.5rem", full: "0.75rem", "2xl": "1rem" },
+        fontFamily: { display: ["Inter"], mono: ["JetBrains Mono"] },
+      },
+    },
+  };
+</script>
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+  .icon-fill { font-variation-settings: 'FILL' 1; }
+  #map { position: absolute; inset: 0; height: 100%; width: 100%; background: #dcd9db; z-index: 1; }
+  .leaflet-popup-content-wrapper { border-radius: 8px; }
+  .rail:not(:hover) .rail-label { display: none; }
+  .rail:not(:hover) { width: 64px; }
+  .rail:hover { width: 208px; }
+  .panel-collapsed { transform: translateX(calc(100% - 40px)); }
+  #events-panel, #right-panel { z-index: 25; }
+  header { z-index: 40; }
+  footer { z-index: 35; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: #c6c6cd; border-radius: 4px; }
+</style>
+</head>
+<body class="bg-surface-container-low text-on-surface w-full h-screen overflow-hidden flex text-sm">
+
+<!-- ICON-RAIL NAV: 64px collapsed, 208px on hover. Reclaims ~220px vs a fixed sidebar. -->
+<nav class="rail hidden md:flex bg-surface-container text-on-surface-variant border-r border-outline-variant fixed left-0 top-0 h-full flex-col py-4 z-40 shrink-0 shadow-lg transition-[width] duration-150 overflow-hidden">
+  <div class="px-4 mb-6 flex items-center gap-2 shrink-0">
+    <span class="material-symbols-outlined text-primary text-[26px] shrink-0">route</span>
+    <div class="rail-label leading-tight">
+      <div class="font-bold text-on-surface whitespace-nowrap">Control Room</div>
+      <div class="text-[10px] uppercase tracking-widest text-on-surface-variant whitespace-nowrap">501BH · Live Optimization</div>
+    </div>
+  </div>
+  <ul class="flex flex-col gap-1 px-3 flex-grow">
+    <li><a class="bg-secondary-container text-on-secondary-container rounded-lg font-bold flex items-center gap-3 px-3 py-2.5" href="#">
+      <span class="material-symbols-outlined icon-fill shrink-0">map</span><span class="rail-label whitespace-nowrap">Live Map</span></a></li>
+    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5" href="#">
+      <span class="material-symbols-outlined shrink-0">monitoring</span><span class="rail-label whitespace-nowrap">Analytics</span></a></li>
+    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5" href="#">
+      <span class="material-symbols-outlined shrink-0">directions_bus</span><span class="rail-label whitespace-nowrap">Fleet Management</span></a></li>
+    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5" href="#">
+      <span class="material-symbols-outlined shrink-0">history</span><span class="rail-label whitespace-nowrap">History</span></a></li>
+    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5" href="#">
+      <span class="material-symbols-outlined shrink-0">settings_suggest</span><span class="rail-label whitespace-nowrap">AI Config</span></a></li>
+  </ul>
+  <ul class="flex flex-col gap-1 px-3 mt-auto border-t border-outline-variant pt-3 shrink-0">
+    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5" href="#">
+      <span class="material-symbols-outlined shrink-0">support_agent</span><span class="rail-label whitespace-nowrap">Support</span></a></li>
+    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5" href="#">
+      <span class="material-symbols-outlined shrink-0">logout</span><span class="rail-label whitespace-nowrap">Logout</span></a></li>
+  </ul>
+</nav>
+
+<main class="flex-1 flex flex-col md:ml-16 h-screen w-full relative">
+
+  <!-- TOP BAR: 56px, one line -->
+  <header class="bg-surface/95 backdrop-blur-sm flex justify-between items-center w-full px-4 h-14 z-50 shrink-0 border-b border-outline-variant absolute top-0 left-0 right-0">
+    <div class="flex items-center gap-3 min-w-0">
+      <span class="font-semibold text-on-surface truncate">Control Room</span>
+      <span id="conf-badge" class="px-2.5 py-1 bg-secondary-fixed text-on-secondary-fixed-variant text-[11px] font-semibold rounded-full flex items-center gap-1.5 border border-secondary-fixed-dim whitespace-nowrap">
+        <span class="w-1.5 h-1.5 rounded-full bg-secondary-container animate-pulse"></span>
+        <span id="conf-badge-text">Connecting…</span>
+      </span>
+    </div>
+    <div class="flex items-center gap-1 shrink-0">
+      <button id="simulate-btn" class="hidden sm:flex items-center gap-1.5 bg-primary text-on-primary text-xs font-semibold px-3 py-1.5 rounded-lg hover:opacity-90 transition-opacity mr-1">
+        <span class="material-symbols-outlined text-[16px]">bolt</span> Run optimization
+      </button>
+      <button class="text-on-surface-variant hover:bg-surface-container-high transition-colors p-2 rounded-full"><span class="material-symbols-outlined text-[20px]">notifications</span></button>
+      <button id="api-settings-btn" class="text-on-surface-variant hover:bg-surface-container-high transition-colors p-2 rounded-full"><span class="material-symbols-outlined text-[20px]">settings</span></button>
+    </div>
+  </header>
+
+  <div class="flex-1 relative pt-14 overflow-hidden">
+
+    <!-- MAP -->
+    <div id="map" class="absolute inset-0 top-0"></div>
+
+    <!-- LEFT: Events, collapsible, narrower than before (272px) -->
+    <aside id="events-panel" class="absolute top-3 left-3 bottom-3 w-[272px] max-w-[80vw] min-w-0 bg-surface/92 backdrop-blur-md border border-outline-variant rounded-2xl flex flex-col overflow-hidden shadow-xl z-20 transition-transform duration-200 box-border">
+      <button id="events-toggle" class="absolute -right-3 top-4 bg-surface border border-outline-variant rounded-full w-6 h-6 flex items-center justify-center shadow z-10">
+        <span class="material-symbols-outlined text-[14px]">chevron_left</span>
+      </button>
+      <div class="p-3 border-b border-outline-variant flex items-center gap-2 shrink-0">
+        <span class="material-symbols-outlined text-secondary-container text-[20px]">language</span>
+        <h2 class="font-semibold text-on-surface text-[15px]">Event Monitor</h2>
+      </div>
+      <div id="events-list" class="p-3 flex flex-col gap-2 overflow-y-auto overflow-x-hidden min-w-0"></div>
+    </aside>
+
+    <!-- RIGHT: tabs instead of two stacked panels; collapsible -->
+    <aside id="right-panel" class="absolute top-3 right-3 bottom-3 w-[300px] max-w-[85vw] min-w-0 bg-surface/92 backdrop-blur-md border border-outline-variant rounded-2xl flex flex-col overflow-hidden shadow-xl z-20 transition-transform duration-200 box-border">
+      <button id="right-toggle" class="absolute -left-3 top-4 bg-surface border border-outline-variant rounded-full w-6 h-6 flex items-center justify-center shadow z-10">
+        <span class="material-symbols-outlined text-[14px]">chevron_right</span>
+      </button>
+      <div class="flex border-b border-outline-variant shrink-0">
+        <button data-tab="recs" class="tab-btn flex-1 py-2.5 text-[13px] font-semibold border-b-2 border-secondary-container text-secondary-container flex items-center justify-center gap-1.5">
+          <span class="material-symbols-outlined text-[16px]">psychology</span> Recommendations
+        </button>
+        <button data-tab="fleet" class="tab-btn flex-1 py-2.5 text-[13px] font-semibold border-b-2 border-transparent text-on-surface-variant flex items-center justify-center gap-1.5">
+          <span class="material-symbols-outlined text-[16px]">directions_bus</span> Fleet
+        </button>
+      </div>
+      <div id="tab-recs" class="tab-panel p-3 flex flex-col gap-3 overflow-y-auto overflow-x-hidden flex-1 min-w-0"></div>
+      <div id="tab-fleet" class="tab-panel p-3 flex flex-col gap-2 overflow-y-auto overflow-x-hidden flex-1 min-w-0 hidden"></div>
+    </aside>
+
+  </div>
+
+  <!-- BOTTOM: one 52px strip, legend behind an info toggle instead of always-on -->
+  <footer class="absolute bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-md border-t border-outline-variant px-4 py-2 shrink-0 flex items-center justify-between z-30 gap-3 shadow-[0_-2px_6px_-1px_rgba(0,0,0,0.05)]">
+    <div class="flex items-center gap-4 overflow-x-auto">
+      <div class="flex items-center gap-2 whitespace-nowrap">
+        <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">Unserved demand</span>
+        <span class="font-bold text-on-surface">24</span>
+        <span class="text-error text-[11px] flex items-center"><span class="material-symbols-outlined text-[14px]">trending_up</span>+8</span>
+      </div>
+      <div class="w-px h-5 bg-outline-variant"></div>
+      <div class="flex items-center gap-2 whitespace-nowrap">
+        <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">System efficiency</span>
+        <span class="font-bold text-on-surface">+12%</span>
+      </div>
+      <div class="w-px h-5 bg-outline-variant"></div>
+      <div class="flex items-center gap-2 whitespace-nowrap">
+        <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">Predicted overcrowding</span>
+        <span class="font-bold text-on-surface">4 zones</span>
+      </div>
+    </div>
+    <div class="relative shrink-0">
+      <button id="legend-btn" class="text-on-surface-variant hover:bg-surface-container-high p-1.5 rounded-full flex items-center gap-1 text-[11px]">
+        <span class="material-symbols-outlined text-[18px]">info</span>
+      </button>
+      <div id="legend-pop" class="hidden absolute bottom-9 right-0 bg-surface border border-outline-variant rounded-lg p-3 shadow-lg w-48 flex flex-col gap-1.5 text-[12px]">
+        <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm bg-secondary-container inline-block"></span> High confidence (&gt;85%)</div>
+        <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm bg-tertiary-fixed-dim inline-block"></span> Medium (60–84%)</div>
+        <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm bg-outline-variant inline-block"></span> Low / fallback (&lt;60%)</div>
+      </div>
+    </div>
+  </footer>
+</main>
+
+<!-- API base settings dialog -->
+<div id="api-dialog" class="hidden fixed inset-0 bg-black/30 z-50 flex items-center justify-center">
+  <div class="bg-surface rounded-2xl p-5 w-[360px] shadow-2xl flex flex-col gap-3">
+    <h3 class="font-semibold">Backend address</h3>
+    <p class="text-on-surface-variant text-xs">Where main.py's uvicorn server is running.</p>
+    <input id="api-base-input" class="border border-outline-variant rounded-lg px-3 py-2 text-sm font-mono" value="http://127.0.0.1:8000"/>
+    <div class="flex justify-end gap-2 mt-1">
+      <button id="api-dialog-cancel" class="px-3 py-1.5 text-sm rounded-lg hover:bg-surface-container-high">Cancel</button>
+      <button id="api-dialog-save" class="px-3 py-1.5 text-sm rounded-lg bg-primary text-on-primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------------------------------------------------------------
+ * Config + small state
+ * ------------------------------------------------------------------- */
+let API_BASE = localStorage.getItem("bmtc_api_base") || "http://127.0.0.1:8000";
+
+const EVENTS = [
+  { icon: "sports_cricket", cat: "Sports", color: "error", tag: "LIVE", title: "Cricket Match", place: "M. Chinnaswamy Stadium", impact: "High Demand" },
+  { icon: "celebration", cat: "Festival", color: "tertiary-fixed-dim", tag: "2h", title: "Karaga Festival", place: "Cubbon Park Area", impact: "Traffic Slowdown" },
+  { icon: "campaign", cat: "Protest", color: "error", tag: "LIVE", title: "Rally / Protest", place: "Freedom Park", impact: "Route Diversions" },
+  { icon: "business", cat: "Tech Shift", color: "secondary-container", tag: "Starts 5 PM", title: "Major Shift End", place: "Manyata Tech Park", impact: "Surge Demand" },
+];
+
+/* ---------------------------------------------------------------------
+ * Map
+ * ------------------------------------------------------------------- */
+const map = L.map("map", { zoomControl: false }).setView([12.9716, 77.5946], 12);
+L.control.zoom({ position: "bottomleft" }).addTo(map);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "&copy; OpenStreetMap contributors",
+  maxZoom: 19,
+}).addTo(map);
+
+const busIcon = (status) => L.divIcon({
+  className: "",
+  html: `<div style="background:${status === "delayed" ? "#ba1a1a" : "#2170e4"};color:#fff;border-radius:999px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.3);border:2px solid white;">
+           <span class="material-symbols-outlined icon-fill" style="font-size:16px;">directions_bus</span>
+         </div>`,
+  iconSize: [30, 30],
+  iconAnchor: [15, 15],
+});
+
+let busMarkers = {};
+
+async function refreshBuses() {
+  try {
+    const res = await fetch(`${API_BASE}/api/live-buses`);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    setBackendStatus(true);
+
+    const seen = new Set();
+    for (const bus of data.sample_active_buses || []) {
+      seen.add(bus.bus_id);
+      const label = `${bus.route}${bus.status === "delayed" ? ` +${bus.delay_min}m` : " On time"}`;
+      if (busMarkers[bus.bus_id]) {
+        busMarkers[bus.bus_id].setLatLng([bus.lat, bus.lon]);
+        busMarkers[bus.bus_id].setIcon(busIcon(bus.status));
+        busMarkers[bus.bus_id].getPopup().setContent(label);
+      } else {
+        busMarkers[bus.bus_id] = L.marker([bus.lat, bus.lon], { icon: busIcon(bus.status) })
+          .addTo(map)
+          .bindPopup(label);
+      }
+    }
+    for (const id of Object.keys(busMarkers)) {
+      if (!seen.has(id)) { map.removeLayer(busMarkers[id]); delete busMarkers[id]; }
+    }
+  } catch (e) {
+    setBackendStatus(false);
+  }
+}
+
+function setBackendStatus(ok) {
+  const badge = document.getElementById("conf-badge-text");
+  badge.textContent = ok ? "Live Optimization (connected)" : "Backend unreachable — check address";
+  document.getElementById("conf-badge").classList.toggle("bg-error-container", !ok);
+  document.getElementById("conf-badge").classList.toggle("bg-secondary-fixed", ok);
+}
+
+/* ---------------------------------------------------------------------
+ * Events panel (illustrative — no live event feed in the backend yet)
+ * ------------------------------------------------------------------- */
+function renderEvents() {
+  const list = document.getElementById("events-list");
+  list.innerHTML = EVENTS.map(ev => `
+    <div class="bg-surface/80 border border-outline-variant rounded-lg p-3 shadow-sm relative overflow-hidden">
+      <div class="absolute top-0 left-0 w-1 h-full bg-${ev.color}"></div>
+      <div class="flex justify-between items-start mb-1">
+        <span class="text-[11px] font-semibold text-${ev.color === "error" ? "error" : "on-surface"} flex items-center gap-1">
+          <span class="material-symbols-outlined text-[14px]">${ev.icon}</span> ${ev.cat}
+        </span>
+        <span class="text-on-surface-variant font-mono text-[10px]">${ev.tag}</span>
+      </div>
+      <h3 class="text-[13px] font-semibold text-on-surface mb-0.5">${ev.title}</h3>
+      <p class="text-[12px] text-on-surface-variant mb-1.5">${ev.place}</p>
+      <div class="flex justify-between items-center text-[12px]">
+        <span class="text-on-surface-variant">Impact</span>
+        <span class="font-mono font-medium text-on-surface bg-surface-container-high px-1.5 py-0.5 rounded">${ev.impact}</span>
+      </div>
+    </div>`).join("");
+}
+
+/* ---------------------------------------------------------------------
+ * Recommendations — real call to /api/optimize
+ * ------------------------------------------------------------------- */
+function confidenceBadge(score) {
+  if (score > 0.85) return { icon: "check_circle", cls: "text-secondary-container border-secondary-fixed-dim" };
+  if (score >= 0.60) return { icon: "warning", cls: "text-on-tertiary-container border-tertiary-fixed" };
+  return { icon: "priority_high", cls: "text-error border-error-container" };
+}
+
+function recCard(rec) {
+  const badge = confidenceBadge(rec.confidence_score);
+  const actionLabel = {
+    DEPLOY_EXTRA_BUS: "Deploy extra bus",
+    RELEASE_BUS_TO_POOL: "Hold next dispatch",
+    MAINTAIN_SCHEDULE: "Maintain schedule",
+  }[rec.action_type] || rec.action_type;
+
+  return `
+    <div class="w-full min-w-0 box-border bg-surface/80 border border-outline-variant rounded-lg p-3 shadow-sm relative overflow-hidden">
+      <div class="absolute top-0 left-0 w-1 h-full bg-secondary-container"></div>
+      <div class="flex justify-between items-start mb-2 gap-2">
+        <h3 class="text-[13px] font-semibold text-on-surface min-w-0 truncate">${actionLabel}: Route ${rec.route_id}</h3>
+        <div class="border ${badge.cls} rounded px-1.5 py-0.5 flex items-center gap-1 shrink-0">
+          <span class="material-symbols-outlined text-[13px]">${badge.icon}</span>
+          <span class="font-mono text-[11px] font-bold">${Math.round(rec.confidence_score * 100)}%</span>
+        </div>
+      </div>
+      <div class="flex flex-col gap-1 mb-2 text-[12px]">
+        <div class="flex justify-between gap-2"><span class="text-on-surface-variant min-w-0 truncate">Fleet / headway</span><span class="font-mono shrink-0">${rec.recommended_fleet_allocation} buses · ${rec.recommended_frequency_minutes}m</span></div>
+        <div class="flex justify-between gap-2"><span class="text-on-surface-variant min-w-0 truncate">Demand (predicted)</span><span class="font-mono shrink-0">${Math.round(rec.predicted_passenger_demand)}</span></div>
+        <div class="flex justify-between gap-2"><span class="text-on-surface-variant min-w-0 truncate">Solver</span><span class="font-mono shrink-0">${rec.solver_used}</span></div>
+      </div>
+      <p class="text-[11.5px] text-on-surface-variant mb-2 leading-snug break-words">${rec.reasoning}</p>
+      <div class="flex gap-2">
+        <button class="flex-1 bg-secondary-container text-on-secondary-container text-[12px] font-semibold py-1.5 rounded hover:opacity-90">Approve</button>
+        <button class="flex-1 bg-surface-container text-on-surface text-[12px] font-semibold py-1.5 rounded border border-outline-variant hover:bg-surface-variant">Dismiss</button>
+      </div>
+    </div>`;
+}
+
+const ROUTES_TO_CHECK = [
+  { route_id: "335-E", current_fleet_count: 8 },
+  { route_id: "500-C", current_fleet_count: 6 },
+];
+
+async function runOptimization() {
+  const container = document.getElementById("tab-recs");
+  container.innerHTML = `<div class="text-on-surface-variant text-[12px] flex items-center gap-2 p-2"><span class="material-symbols-outlined animate-spin text-[16px]">progress_activity</span> Calling optimizer…</div>`;
+
+  const now = new Date();
+  const cards = [];
+  for (const route of ROUTES_TO_CHECK) {
+    try {
+      const res = await fetch(`${API_BASE}/api/optimize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          route_id: route.route_id,
+          current_fleet_count: route.current_fleet_count,
+          average_speed_kmh: 14 + Math.random() * 10,
+          weather_condition: 0,
+          hour_of_day: now.getHours(),
+          day_of_week: now.getDay(),
+          is_event_nearby: 1,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const rec = await res.json();
+      cards.push(recCard(rec));
+      setBackendStatus(true);
+    } catch (e) {
+      setBackendStatus(false);
+      cards.push(`<div class="text-error text-[12px] p-2 border border-error-container rounded-lg">Couldn't reach /api/optimize for ${route.route_id}. Is uvicorn running at ${API_BASE}?</div>`);
+    }
+  }
+  container.innerHTML = cards.join("");
+}
+
+/* ---------------------------------------------------------------------
+ * Fleet tab — quick summary sourced from the live-buses feed
+ * ------------------------------------------------------------------- */
+async function renderFleetTab() {
+  const el = document.getElementById("tab-fleet");
+  try {
+    const res = await fetch(`${API_BASE}/api/live-buses`);
+    const data = await res.json();
+    const buses = data.sample_active_buses || [];
+    el.innerHTML = buses.map(b => `
+      <div class="w-full min-w-0 box-border flex items-center justify-between gap-2 border border-outline-variant rounded-lg px-3 py-2 text-[12px]">
+        <div class="min-w-0">
+          <div class="font-semibold truncate">${b.route}</div>
+          <div class="text-on-surface-variant font-mono text-[10px] truncate">${b.bus_id}</div>
+        </div>
+        <div class="text-right shrink-0">
+          <div class="font-mono">${b.speed.toFixed(1)} km/h</div>
+          <div class="${b.status === "delayed" ? "text-error" : "text-secondary-container"} text-[11px] font-semibold">
+            ${b.status === "delayed" ? `+${b.delay_min}m late` : "On time"}
+          </div>
+        </div>
+      </div>`).join("") || `<div class="text-on-surface-variant text-[12px]">No buses reporting.</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="text-error text-[12px]">Couldn't reach the backend.</div>`;
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * Wiring
+ * ------------------------------------------------------------------- */
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => {
+      b.classList.remove("border-secondary-container", "text-secondary-container");
+      b.classList.add("border-transparent", "text-on-surface-variant");
+    });
+    btn.classList.add("border-secondary-container", "text-secondary-container");
+    btn.classList.remove("border-transparent", "text-on-surface-variant");
+
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
+    document.getElementById(`tab-${btn.dataset.tab}`).classList.remove("hidden");
+    if (btn.dataset.tab === "fleet") renderFleetTab();
+  });
+});
+
+document.getElementById("events-toggle").addEventListener("click", () => {
+  const panel = document.getElementById("events-panel");
+  panel.classList.toggle("panel-collapsed");
+  const icon = document.querySelector("#events-toggle .material-symbols-outlined");
+  panel.classList.contains("panel-collapsed")
+    ? (icon.textContent = "chevron_right", panel.style.transform = "translateX(calc(-100% + 40px))")
+    : (icon.textContent = "chevron_left", panel.style.transform = "");
+});
+
+document.getElementById("right-toggle").addEventListener("click", () => {
+  const panel = document.getElementById("right-panel");
+  panel.classList.toggle("panel-collapsed");
+  const icon = document.querySelector("#right-toggle .material-symbols-outlined");
+  icon.textContent = panel.classList.contains("panel-collapsed") ? "chevron_left" : "chevron_right";
+});
+
+document.getElementById("legend-btn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  document.getElementById("legend-pop").classList.toggle("hidden");
+});
+document.addEventListener("click", () => document.getElementById("legend-pop").classList.add("hidden"));
+
+document.getElementById("simulate-btn").addEventListener("click", runOptimization);
+
+const dialog = document.getElementById("api-dialog");
+document.getElementById("api-settings-btn").addEventListener("click", () => {
+  document.getElementById("api-base-input").value = API_BASE;
+  dialog.classList.remove("hidden");
+});
+document.getElementById("api-dialog-cancel").addEventListener("click", () => dialog.classList.add("hidden"));
+document.getElementById("api-dialog-save").addEventListener("click", () => {
+  API_BASE = document.getElementById("api-base-input").value.trim().replace(/\/$/, "");
+  localStorage.setItem("bmtc_api_base", API_BASE);
+  dialog.classList.add("hidden");
+  refreshBuses();
+});
+
+renderEvents();
+refreshBuses();
+runOptimization();
+setInterval(refreshBuses, 5000);
+</script>
+</body>
+</html>

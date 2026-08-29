@@ -19,6 +19,7 @@ Run:
 """
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 import numpy as np
@@ -36,6 +37,16 @@ app = FastAPI(
     title="BMTC Dynamic Frequency Optimization Backend",
     version="2.0.0",
     description="SIH 2026 (501BH) - ML demand forecasting + OR-Tools frequency optimization",
+)
+
+# Local dev only — the control-room frontend (served from a file:// page or a
+# different port) needs to call this API from the browser. Lock this down to
+# your actual frontend origin before deploying anywhere real.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ---------------------------------------------------------------------------
@@ -391,11 +402,18 @@ def optimize_stop_level(payload: StopOptimizationRequest):
 
 @app.get("/api/live-buses")
 def get_live_buses():
+    """Mock bus feed shaped like what the frontend map expects. Replace the
+    sample_active_buses list with a real GTFS-Realtime VehiclePositions feed
+    or BMTC's own feed once you have access — the frontend doesn't need to
+    change, just point it at real data with this same shape."""
     return {
         "source_portal": "https://nammabmtcapp.karnataka.gov.in/commuter/track-a-bus",
         "note": "Direct scraping of this portal will likely hit CORS/anti-bot walls — "
                 "plan to get real feed access via BMTC/GTFS-Realtime instead of polling the site.",
         "sample_active_buses": [
-            {"bus_id": "KA-01-F-1234", "route": "501BH", "lat": 12.9716, "lon": 77.5946, "speed": 22.4},
+            {"bus_id": "KA-01-F-1234", "route": "335-E", "lat": 12.9767, "lon": 77.5713, "speed": 9.2, "status": "delayed", "delay_min": 12},
+            {"bus_id": "KA-01-F-5678", "route": "500-C", "lat": 12.9250, "lon": 77.6228, "speed": 21.4, "status": "on_time", "delay_min": 0},
+            {"bus_id": "KA-01-F-9012", "route": "500-D", "lat": 12.9081, "lon": 77.6476, "speed": 18.7, "status": "on_time", "delay_min": 0},
+            {"bus_id": "KA-01-F-3456", "route": "501BH", "lat": 12.9716, "lon": 77.5946, "speed": 22.4, "status": "on_time", "delay_min": 0},
         ],
     }
