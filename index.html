@@ -59,11 +59,12 @@
   footer { z-index: 35; }
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-thumb { background: #c6c6cd; border-radius: 4px; }
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  .live-dot { animation: pulse-dot 1.6s ease-in-out infinite; }
 </style>
 </head>
 <body class="bg-surface-container-low text-on-surface w-full h-screen overflow-hidden flex text-sm">
 
-<!-- ICON-RAIL NAV: 64px collapsed, 208px on hover. Reclaims ~220px vs a fixed sidebar. -->
 <nav class="rail hidden md:flex bg-surface-container text-on-surface-variant border-r border-outline-variant fixed left-0 top-0 h-full flex-col py-4 z-40 shrink-0 shadow-lg transition-[width] duration-150 overflow-hidden">
   <div class="px-4 mb-6 flex items-center gap-2 shrink-0">
     <span class="material-symbols-outlined text-primary text-[26px] shrink-0">route</span>
@@ -94,12 +95,11 @@
 
 <main class="flex-1 flex flex-col md:ml-16 h-screen w-full relative">
 
-  <!-- TOP BAR: 56px, one line -->
   <header class="bg-surface/95 backdrop-blur-sm flex justify-between items-center w-full px-4 h-14 z-50 shrink-0 border-b border-outline-variant absolute top-0 left-0 right-0">
     <div class="flex items-center gap-3 min-w-0">
       <span class="font-semibold text-on-surface truncate">Control Room</span>
       <span id="conf-badge" class="px-2.5 py-1 bg-secondary-fixed text-on-secondary-fixed-variant text-[11px] font-semibold rounded-full flex items-center gap-1.5 border border-secondary-fixed-dim whitespace-nowrap">
-        <span class="w-1.5 h-1.5 rounded-full bg-secondary-container animate-pulse"></span>
+        <span class="w-1.5 h-1.5 rounded-full bg-secondary-container live-dot"></span>
         <span id="conf-badge-text">Connecting…</span>
       </span>
     </div>
@@ -108,16 +108,13 @@
         <span class="material-symbols-outlined text-[16px]">bolt</span> Run optimization
       </button>
       <button class="text-on-surface-variant hover:bg-surface-container-high transition-colors p-2 rounded-full"><span class="material-symbols-outlined text-[20px]">notifications</span></button>
-      <button id="api-settings-btn" class="text-on-surface-variant hover:bg-surface-container-high transition-colors p-2 rounded-full"><span class="material-symbols-outlined text-[20px]">settings</span></button>
     </div>
   </header>
 
   <div class="flex-1 relative pt-14 overflow-hidden">
 
-    <!-- MAP -->
     <div id="map" class="absolute inset-0 top-0"></div>
 
-    <!-- LEFT: Events, collapsible, narrower than before (272px) -->
     <aside id="events-panel" class="absolute top-3 left-3 bottom-3 w-[272px] max-w-[80vw] min-w-0 bg-surface/92 backdrop-blur-md border border-outline-variant rounded-2xl flex flex-col overflow-hidden shadow-xl z-20 transition-transform duration-200 box-border">
       <button id="events-toggle" class="absolute -right-3 top-4 bg-surface border border-outline-variant rounded-full w-6 h-6 flex items-center justify-center shadow z-10">
         <span class="material-symbols-outlined text-[14px]">chevron_left</span>
@@ -129,7 +126,6 @@
       <div id="events-list" class="p-3 flex flex-col gap-2 overflow-y-auto overflow-x-hidden min-w-0"></div>
     </aside>
 
-    <!-- RIGHT: tabs instead of two stacked panels; collapsible -->
     <aside id="right-panel" class="absolute top-3 right-3 bottom-3 w-[300px] max-w-[85vw] min-w-0 bg-surface/92 backdrop-blur-md border border-outline-variant rounded-2xl flex flex-col overflow-hidden shadow-xl z-20 transition-transform duration-200 box-border">
       <button id="right-toggle" class="absolute -left-3 top-4 bg-surface border border-outline-variant rounded-full w-6 h-6 flex items-center justify-center shadow z-10">
         <span class="material-symbols-outlined text-[14px]">chevron_right</span>
@@ -148,23 +144,21 @@
 
   </div>
 
-  <!-- BOTTOM: one 52px strip, legend behind an info toggle instead of always-on -->
   <footer class="absolute bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-md border-t border-outline-variant px-4 py-2 shrink-0 flex items-center justify-between z-30 gap-3 shadow-[0_-2px_6px_-1px_rgba(0,0,0,0.05)]">
     <div class="flex items-center gap-4 overflow-x-auto">
       <div class="flex items-center gap-2 whitespace-nowrap">
         <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">Unserved demand</span>
-        <span class="font-bold text-on-surface">24</span>
-        <span class="text-error text-[11px] flex items-center"><span class="material-symbols-outlined text-[14px]">trending_up</span>+8</span>
+        <span id="stat-unserved" class="font-bold text-on-surface">—</span>
       </div>
       <div class="w-px h-5 bg-outline-variant"></div>
       <div class="flex items-center gap-2 whitespace-nowrap">
-        <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">System efficiency</span>
-        <span class="font-bold text-on-surface">+12%</span>
+        <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">Fleet in motion</span>
+        <span id="stat-fleet" class="font-bold text-on-surface">—</span>
       </div>
       <div class="w-px h-5 bg-outline-variant"></div>
       <div class="flex items-center gap-2 whitespace-nowrap">
         <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">Predicted overcrowding</span>
-        <span class="font-bold text-on-surface">4 zones</span>
+        <span id="stat-overcrowd" class="font-bold text-on-surface">—</span>
       </div>
     </div>
     <div class="relative shrink-0">
@@ -180,31 +174,14 @@
   </footer>
 </main>
 
-<!-- API base settings dialog -->
-<div id="api-dialog" class="hidden fixed inset-0 bg-black/30 z-50 flex items-center justify-center">
-  <div class="bg-surface rounded-2xl p-5 w-[360px] shadow-2xl flex flex-col gap-3">
-    <h3 class="font-semibold">Backend address</h3>
-    <p class="text-on-surface-variant text-xs">Where main.py's uvicorn server is running.</p>
-    <input id="api-base-input" class="border border-outline-variant rounded-lg px-3 py-2 text-sm font-mono" value="http://127.0.0.1:8000"/>
-    <div class="flex justify-end gap-2 mt-1">
-      <button id="api-dialog-cancel" class="px-3 py-1.5 text-sm rounded-lg hover:bg-surface-container-high">Cancel</button>
-      <button id="api-dialog-save" class="px-3 py-1.5 text-sm rounded-lg bg-primary text-on-primary">Save</button>
-    </div>
-  </div>
-</div>
-
 <script>
 /* ---------------------------------------------------------------------
- * Config + small state
+ * State
  * ------------------------------------------------------------------- */
-let API_BASE = localStorage.getItem("bmtc_api_base") || "http://127.0.0.1:8000";
-
-const EVENTS = [
-  { icon: "sports_cricket", cat: "Sports", color: "error", tag: "LIVE", title: "Cricket Match", place: "M. Chinnaswamy Stadium", impact: "High Demand" },
-  { icon: "celebration", cat: "Festival", color: "tertiary-fixed-dim", tag: "2h", title: "Karaga Festival", place: "Cubbon Park Area", impact: "Traffic Slowdown" },
-  { icon: "campaign", cat: "Protest", color: "error", tag: "LIVE", title: "Rally / Protest", place: "Freedom Park", impact: "Route Diversions" },
-  { icon: "business", cat: "Tech Shift", color: "secondary-container", tag: "Starts 5 PM", title: "Major Shift End", place: "Manyata Tech Park", impact: "Surge Demand" },
-];
+let ROUTES_TO_CHECK = [];
+let EVENTS = [];
+let ws = null;
+let wsRetryDelay = 1000;
 
 /* ---------------------------------------------------------------------
  * Map
@@ -225,47 +202,90 @@ const busIcon = (status) => L.divIcon({
   iconAnchor: [15, 15],
 });
 
+const routeColors = {
+  "335-E": "#2170e4", "500-C": "#ba1a1a", "501BH": "#00a368",
+  "1": "#f57c00", "10": "#7c4dff", "12": "#009688"
+};
+
+let routePolylines = {};
 let busMarkers = {};
 
-async function refreshBuses() {
-  try {
-    const res = await fetch(`${API_BASE}/api/live-buses`);
-    if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
-    setBackendStatus(true);
-
-    const seen = new Set();
-    for (const bus of data.sample_active_buses || []) {
-      seen.add(bus.bus_id);
-      const label = `${bus.route}${bus.status === "delayed" ? ` +${bus.delay_min}m` : " On time"}`;
-      if (busMarkers[bus.bus_id]) {
-        busMarkers[bus.bus_id].setLatLng([bus.lat, bus.lon]);
-        busMarkers[bus.bus_id].setIcon(busIcon(bus.status));
-        busMarkers[bus.bus_id].getPopup().setContent(label);
-      } else {
-        busMarkers[bus.bus_id] = L.marker([bus.lat, bus.lon], { icon: busIcon(bus.status) })
-          .addTo(map)
-          .bindPopup(label);
-      }
+function drawRouteLines() {
+  for (const route of ROUTES_TO_CHECK) {
+    if (routePolylines[route.route_id]) map.removeLayer(routePolylines[route.route_id]);
+    const stops = route.stops || [];
+    if (stops.length > 1) {
+      const latlngs = stops.map(s => [s.lat, s.lon]);
+      const color = routeColors[route.route_id] || "#666";
+      routePolylines[route.route_id] = L.polyline(latlngs, { color, weight: 3, opacity: 0.6, dashArray: "5, 5" })
+        .addTo(map)
+        .bindPopup(`<b>${route.route_id}</b> — ${route.corridor_name}<br>${latlngs.length} stops`);
     }
-    for (const id of Object.keys(busMarkers)) {
-      if (!seen.has(id)) { map.removeLayer(busMarkers[id]); delete busMarkers[id]; }
-    }
-  } catch (e) {
-    setBackendStatus(false);
   }
+}
+
+function updateBusMarkers(buses) {
+  const seen = new Set();
+  for (const bus of buses) {
+    seen.add(bus.bus_id);
+    const label = `${bus.route} · ${bus.status === "delayed" ? `+${bus.delay_min}m late` : "On time"} · ${bus.speed} km/h`;
+    if (busMarkers[bus.bus_id]) {
+      busMarkers[bus.bus_id].setLatLng([bus.lat, bus.lon]);
+      busMarkers[bus.bus_id].setIcon(busIcon(bus.status));
+      busMarkers[bus.bus_id].getPopup()?.setContent(label);
+    } else {
+      busMarkers[bus.bus_id] = L.marker([bus.lat, bus.lon], { icon: busIcon(bus.status) }).addTo(map).bindPopup(label);
+    }
+  }
+  for (const id of Object.keys(busMarkers)) {
+    if (!seen.has(id)) { map.removeLayer(busMarkers[id]); delete busMarkers[id]; }
+  }
+  document.getElementById("stat-fleet").textContent = `${buses.length} buses`;
+}
+
+/* ---------------------------------------------------------------------
+ * WebSocket live bus feed — falls back to polling if the socket drops
+ * ------------------------------------------------------------------- */
+function connectLiveFeed() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws/live`);
+
+  ws.onopen = () => { wsRetryDelay = 1000; setBackendStatus(true); };
+  ws.onmessage = (evt) => {
+    const data = JSON.parse(evt.data);
+    updateBusMarkers(data.sample_active_buses || []);
+  };
+  ws.onclose = () => {
+    setBackendStatus(false);
+    setTimeout(connectLiveFeed, wsRetryDelay);
+    wsRetryDelay = Math.min(wsRetryDelay * 1.5, 15000);
+  };
+  ws.onerror = () => ws.close();
 }
 
 function setBackendStatus(ok) {
   const badge = document.getElementById("conf-badge-text");
-  badge.textContent = ok ? "Live Optimization (connected)" : "Backend unreachable — check address";
+  badge.textContent = ok ? "Live Optimization (connected)" : "Reconnecting to backend…";
   document.getElementById("conf-badge").classList.toggle("bg-error-container", !ok);
   document.getElementById("conf-badge").classList.toggle("bg-secondary-fixed", ok);
 }
 
 /* ---------------------------------------------------------------------
- * Events panel (illustrative — no live event feed in the backend yet)
+ * Route summary + events (slower refresh — these are the "planning" data)
  * ------------------------------------------------------------------- */
+async function loadLiveData() {
+  try {
+    const [alertRes, routeRes] = await Promise.all([fetch("/api/alerts"), fetch("/api/route-summary")]);
+    if (!alertRes.ok || !routeRes.ok) throw new Error("live data fetch failed");
+    EVENTS = await alertRes.json();
+    ROUTES_TO_CHECK = await routeRes.json();
+    renderEvents();
+    drawRouteLines();
+  } catch (e) {
+    console.warn("loadLiveData failed", e);
+  }
+}
+
 function renderEvents() {
   const list = document.getElementById("events-list");
   list.innerHTML = EVENTS.map(ev => `
@@ -273,7 +293,7 @@ function renderEvents() {
       <div class="absolute top-0 left-0 w-1 h-full bg-${ev.color}"></div>
       <div class="flex justify-between items-start mb-1">
         <span class="text-[11px] font-semibold text-${ev.color === "error" ? "error" : "on-surface"} flex items-center gap-1">
-          <span class="material-symbols-outlined text-[14px]">${ev.icon}</span> ${ev.cat}
+          <span class="material-symbols-outlined text-[14px]">${ev.icon}</span> ${ev.category}
         </span>
         <span class="text-on-surface-variant font-mono text-[10px]">${ev.tag}</span>
       </div>
@@ -287,7 +307,7 @@ function renderEvents() {
 }
 
 /* ---------------------------------------------------------------------
- * Recommendations — real call to /api/optimize
+ * Recommendations — calls to /api/optimize + /api/stops/{route}
  * ------------------------------------------------------------------- */
 function confidenceBadge(score) {
   if (score > 0.85) return { icon: "check_circle", cls: "text-secondary-container border-secondary-fixed-dim" };
@@ -326,51 +346,75 @@ function recCard(rec) {
     </div>`;
 }
 
-const ROUTES_TO_CHECK = [
-  { route_id: "335-E", current_fleet_count: 8 },
-  { route_id: "500-C", current_fleet_count: 6 },
-];
+function stopAlertCard(stop) {
+  return `
+    <div class="w-full min-w-0 box-border bg-surface/80 border border-error-container rounded-lg p-3 shadow-sm relative overflow-hidden">
+      <div class="absolute top-0 left-0 w-1 h-full bg-error"></div>
+      <div class="flex justify-between items-start mb-2 gap-2">
+        <h3 class="text-[13px] font-semibold text-error min-w-0 truncate">Overcrowding: ${stop.stop_name}</h3>
+        <span class="font-mono text-[11px] text-error-container shrink-0">${Math.round(stop.crowding_pct)}%</span>
+      </div>
+      <p class="text-[12px] text-on-surface-variant">${stop.current_waiting_passengers} waiting, ${stop.bus_capacity_available} seats left on the next bus</p>
+    </div>`;
+}
 
 async function runOptimization() {
   const container = document.getElementById("tab-recs");
-  container.innerHTML = `<div class="text-on-surface-variant text-[12px] flex items-center gap-2 p-2"><span class="material-symbols-outlined animate-spin text-[16px]">progress_activity</span> Calling optimizer…</div>`;
+  container.innerHTML = `<div class="text-on-surface-variant text-[12px] flex items-center gap-2 p-2"><span class="material-symbols-outlined animate-spin text-[16px]">progress_activity</span> Optimizing routes…</div>`;
+
+  if (!ROUTES_TO_CHECK.length) await loadLiveData();
 
   const now = new Date();
   const cards = [];
+  let unserved = 0;
+  let overcrowdZones = 0;
+
   for (const route of ROUTES_TO_CHECK) {
     try {
-      const res = await fetch(`${API_BASE}/api/optimize`, {
+      const res = await fetch("/api/optimize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           route_id: route.route_id,
           current_fleet_count: route.current_fleet_count,
-          average_speed_kmh: 14 + Math.random() * 10,
-          weather_condition: 0,
+          average_speed_kmh: route.avg_speed_kmh ?? 14,
+          weather_condition: now.getHours() >= 17 ? 1 : 0,
           hour_of_day: now.getHours(),
           day_of_week: now.getDay(),
-          is_event_nearby: 1,
+          is_event_nearby: EVENTS.length > 0 ? 1 : 0,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
       const rec = await res.json();
       cards.push(recCard(rec));
+      if (rec.delta_buses > 0) unserved += rec.delta_buses;
+
+      const stopsRes = await fetch(`/api/stops/${route.route_id}`);
+      if (stopsRes.ok) {
+        const stops = await stopsRes.json();
+        const critical = stops.filter(s => s.crowding_pct > 60).slice(0, 2);
+        overcrowdZones += critical.length;
+        critical.forEach(s => cards.push(stopAlertCard(s)));
+      }
       setBackendStatus(true);
     } catch (e) {
       setBackendStatus(false);
-      cards.push(`<div class="text-error text-[12px] p-2 border border-error-container rounded-lg">Couldn't reach /api/optimize for ${route.route_id}. Is uvicorn running at ${API_BASE}?</div>`);
+      cards.push(`<div class="text-error text-[12px] p-2 border border-error-container rounded-lg">Couldn't reach /api/optimize for ${route.route_id}.</div>`);
     }
   }
+
   container.innerHTML = cards.join("");
+  document.getElementById("stat-unserved").textContent = unserved;
+  document.getElementById("stat-overcrowd").textContent = `${overcrowdZones} zones`;
 }
 
 /* ---------------------------------------------------------------------
- * Fleet tab — quick summary sourced from the live-buses feed
+ * Fleet tab
  * ------------------------------------------------------------------- */
 async function renderFleetTab() {
   const el = document.getElementById("tab-fleet");
   try {
-    const res = await fetch(`${API_BASE}/api/live-buses`);
+    const res = await fetch("/api/live-buses");
     const data = await res.json();
     const buses = data.sample_active_buses || [];
     el.innerHTML = buses.map(b => `
@@ -433,23 +477,13 @@ document.addEventListener("click", () => document.getElementById("legend-pop").c
 
 document.getElementById("simulate-btn").addEventListener("click", runOptimization);
 
-const dialog = document.getElementById("api-dialog");
-document.getElementById("api-settings-btn").addEventListener("click", () => {
-  document.getElementById("api-base-input").value = API_BASE;
-  dialog.classList.remove("hidden");
-});
-document.getElementById("api-dialog-cancel").addEventListener("click", () => dialog.classList.add("hidden"));
-document.getElementById("api-dialog-save").addEventListener("click", () => {
-  API_BASE = document.getElementById("api-base-input").value.trim().replace(/\/$/, "");
-  localStorage.setItem("bmtc_api_base", API_BASE);
-  dialog.classList.add("hidden");
-  refreshBuses();
-});
-
-renderEvents();
-refreshBuses();
-runOptimization();
-setInterval(refreshBuses, 5000);
+(async function initDashboard() {
+  connectLiveFeed();
+  await loadLiveData();
+  await runOptimization();
+  setInterval(loadLiveData, 15000);
+  setInterval(runOptimization, 20000);
+})();
 </script>
 </body>
 </html>
