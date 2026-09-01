@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+pydantic
+numpy
+pandas
+xgboost
+scikit-learn
+ortools
+
+# signals.py — real-world signal aggregation layer
+requests
+apscheduler
+groq
+beautifulsoup4
+pypdf
+python-dotenv
