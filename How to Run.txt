@@ -1,0 +1,10 @@
+> python -m venv bmtc_env
+>> bmtc_env\Scripts\activate
+
+# Install with compatible versions
+pip install protobuf==5.29.6
+pip install google-ai-generativelanguage==0.6.12  # Older version that works with protobuf 5.29.6
+pip install groq==0.5.0
+pip install google-generativeai==0.3.0  # Older version
+pip install ortools==9.8.3296
+pip install fastapi uvicorn xgboost pandas numpy scikit-learn requests python-dotenv pypdf beautifulsoup4 apscheduler tabulate colorama

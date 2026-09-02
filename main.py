@@ -472,3 +472,106 @@ def get_live_buses():
             {"bus_id": "KA-01-F-3456", "route": "501BH", "lat": 12.9716, "lon": 77.5946, "speed": 22.4, "status": "on_time", "delay_min": 0},
         ],
     }
+
+
+# Add to main.py after the existing endpoints
+
+@app.post("/api/fetch/all")
+def fetch_all_signals_endpoint():
+    """Fetch signals from all configured sources"""
+    from signals import refresh_predicthq_signals, refresh_exam_signals, signal_store
+    
+    results = {
+        "predicthq": 0,
+        "exam_calendars": 0,
+        "total": 0,
+        "active_after_fetch": 0
+    }
+    
+    try:
+        results["predicthq"] = refresh_predicthq_signals()
+    except Exception as e:
+        results["predicthq_error"] = str(e)
+    
+    try:
+        results["exam_calendars"] = refresh_exam_signals()
+    except Exception as e:
+        results["exam_calendars_error"] = str(e)
+    
+    results["total"] = results["predicthq"] + results["exam_calendars"]
+    results["active_after_fetch"] = len(signal_store.all_upcoming())
+    
+    return {
+        "status": "success",
+        "message": f"Fetched {results['total']} signals total",
+        "details": results
+    }
+
+
+@app.post("/api/fetch/predicthq")
+def fetch_predicthq_endpoint():
+    """Fetch only PredictHQ signals"""
+    from signals import refresh_predicthq_signals, signal_store
+    
+    count = refresh_predicthq_signals()
+    
+    return {
+        "status": "success",
+        "source": "predicthq",
+        "signals_fetched": count,
+        "total_active": len(signal_store.all_upcoming())
+    }
+
+
+@app.post("/api/fetch/exams")
+def fetch_exams_endpoint():
+    """Fetch only exam calendar signals"""
+    from signals import refresh_exam_signals, signal_store
+    
+    count = refresh_exam_signals()
+    
+    return {
+        "status": "success",
+        "source": "exam_calendars",
+        "signals_fetched": count,
+        "total_active": len(signal_store.all_upcoming())
+    }
+
+
+@app.get("/api/signals/status")
+def signals_status():
+    """Get current signal store status"""
+    from signals import signal_store, ROUTE_LOCATIONS
+    
+    all_signals = signal_store.all_upcoming()
+    
+    by_source = {}
+    for sig in all_signals:
+        by_source[sig.source] = by_source.get(sig.source, 0) + 1
+    
+    by_route = {}
+    for route_id in ROUTE_LOCATIONS.keys():
+        active = signal_store.active_for_route(route_id)
+        if active:
+            by_route[route_id] = [s.name for s in active]
+    
+    return {
+        "total_active": len(all_signals),
+        "by_source": by_source,
+        "by_route": by_route,
+        "signals": [
+            {
+                "id": s.signal_id,
+                "name": s.name,
+                "source": s.source,
+                "category": s.category,
+                "routes": s.affected_routes,
+                "start": s.start_time.isoformat(),
+                "end": s.end_time.isoformat()
+            }
+            for s in all_signals[:20]  # Limit to 20 for response size
+        ]
+    }
+
+
+    
