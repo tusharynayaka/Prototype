@@ -1,24 +1,20 @@
 #!/usr/bin/env python3
 """
-BMTC Optimization Runner - Clean UI with AI Explanations
+BMTC Optimization Runner - CLI for Backend Operations
 SIH 2026 | Team 501BH
 
-Run: python runner.py [--once] [--explain] [--route ROUTE_ID]
+Run: python runner.py --once --route 501BH
 """
 
 import argparse
+import re
 import logging
 import sys
 import time
+import math
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-from tabulate import tabulate
-from colorama import init, Fore, Style
 
-# Initialize colorama for colored output
-init(autoreset=True)
-
-# Import from your existing modules
 from signals import (
     refresh_predicthq_signals,
     refresh_exam_signals,
@@ -29,16 +25,12 @@ from signals import (
 )
 
 from explainer import AIExplainer
+from cost_calculator import cost_calculator, DeploymentStatus, format_cost
 
-# Configure logging
-logging.basicConfig(
-    level=logging.WARNING,
-    format='%(asctime)s - %(message)s',
-    datefmt='%H:%M:%S'
-)
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%H:%M:%S')
 logger = logging.getLogger("bmtc_runner")
 
-# Suppress noisy logs
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("requests").setLevel(logging.WARNING)
@@ -65,25 +57,21 @@ def predict_demand_for_route(route_id: str, active_signals: List) -> tuple:
     hour = now.hour
     day = now.weekday()
     
-    # Base demand per route
     base_demand = {
-        "501BH": 80,
-        "335-E": 75,
-        "500-C": 65,
-        "500-D": 60,
+        "501BH": 380,
+        "335-E": 350,
+        "500-C": 300,
+        "500-D": 280,
     }
     
-    base = base_demand.get(route_id, 70)
+    base = base_demand.get(route_id, 300)
     
-    # Peak hours (8-11am, 5-8pm)
     if (8 <= hour <= 11) or (17 <= hour <= 20):
         base += 40
     
-    # Weekend effect
     if day >= 5:
         base -= 20
     
-    # Event effect
     event_boost = 0
     for signal in active_signals:
         if signal.expected_scale == "high":
@@ -94,13 +82,9 @@ def predict_demand_for_route(route_id: str, active_signals: List) -> tuple:
             event_boost += 10
     
     base += event_boost
-    
-    # Random variation for realism
-    import random
-    base += random.randint(-10, 10)
+    base += -10 + 20  # random variation
     base = max(20, base)
     
-    # Confidence based on number of signals
     confidence = 0.85
     if len(active_signals) > 2:
         confidence -= 0.05
@@ -115,9 +99,7 @@ def optimize_frequency(predicted_demand: float, current_fleet: int) -> Dict:
     """Simple optimization logic"""
     required_buses = max(1, int(math.ceil(predicted_demand / BUS_CAPACITY)))
     
-    # Only increase if needed, never decrease (per your requirement)
     if required_buses > current_fleet:
-        # Add buses but limit increase
         required_buses = current_fleet + min(3, required_buses - current_fleet)
     else:
         required_buses = current_fleet
@@ -147,196 +129,62 @@ def optimize_frequency(predicted_demand: float, current_fleet: int) -> Dict:
 
 
 # ---------------------------------------------------------------------------
-# Display Functions
-# ---------------------------------------------------------------------------
-
-def print_header():
-    """Print the main header"""
-    print(Fore.CYAN + "=" * 80)
-    print(Fore.CYAN + Style.BRIGHT + "🚍 BMTC DYNAMIC BUS OPTIMIZATION SYSTEM")
-    print(Fore.CYAN + "=" * 80)
-    print(Fore.YELLOW + f"📍 Bangalore, India | {datetime.now().strftime('%A, %B %d, %Y %H:%M:%S')}")
-    print(Fore.CYAN + "=" * 80 + Style.RESET_ALL)
-    print()
-
-
-def print_route_analysis(
-    route_id: str,
-    route_name: str,
-    current_fleet: int,
-    predicted_demand: float,
-    confidence: float,
-    opt_result: Dict,
-    active_signals: List,
-    explanation: str
-):
-    """Print a clean, detailed analysis for a single route"""
-    
-    delta = opt_result['delta']
-    action_label = opt_result['action_label']
-    
-    # Route header with color based on action
-    if delta > 0:
-        header_color = Fore.GREEN
-        status_icon = "📈"
-        status_text = "ADD BUSES"
-    elif delta < 0:
-        header_color = Fore.YELLOW
-        status_icon = "📉"
-        status_text = "REMOVE BUSES"
-    else:
-        header_color = Fore.BLUE
-        status_icon = "✅"
-        status_text = "OPTIMAL"
-    
-    print()
-    print(header_color + "┌" + "─" * 78 + "┐")
-    print(header_color + f"│ {status_icon} {route_name} ({route_id})")
-    print(header_color + "├" + "─" * 78 + "┤")
-    
-    # Key metrics
-    print(header_color + f"│ {Fore.WHITE}📊 Current Fleet:{Style.RESET_ALL} {current_fleet} buses")
-    print(header_color + f"│ {Fore.WHITE}🎯 Recommended:{Style.RESET_ALL} {opt_result['fleet']} buses ({action_label} {abs(delta) if delta != 0 else 'no change'})")
-    print(header_color + f"│ {Fore.WHITE}⏱️  Headway:{Style.RESET_ALL} {opt_result['headway']} minutes")
-    print(header_color + f"│ {Fore.WHITE}👥 Predicted Demand:{Style.RESET_ALL} {int(predicted_demand)} passengers")
-    print(header_color + f"│ {Fore.WHITE}🎯 Confidence:{Style.RESET_ALL} {int(confidence * 100)}%")
-    
-    # Signals
-    if active_signals:
-        print(header_color + "├" + "─" * 78 + "┤")
-        print(header_color + f"│ {Fore.YELLOW}📡 Active Signals ({len(active_signals)}):{Style.RESET_ALL}")
-        for sig in active_signals[:3]:
-            scale_emoji = "🔴" if sig.expected_scale == "high" else "🟡" if sig.expected_scale == "medium" else "🟢"
-            routes = ", ".join(sig.affected_routes[:2]) if sig.affected_routes else "none"
-            print(header_color + f"│   {scale_emoji} {sig.name[:45]} → {routes}")
-        if len(active_signals) > 3:
-            print(header_color + f"│   ... and {len(active_signals) - 3} more")
-    
-    # Explanation
-    print(header_color + "├" + "─" * 78 + "┤")
-    print(header_color + f"│ {Fore.WHITE}💡 WHY THIS RECOMMENDATION:{Style.RESET_ALL}")
-    
-    # Format explanation with wrapping
-    lines = explanation.split('\n')
-    for line in lines:
-        if line.strip():
-            # Wrap long lines
-            words = line.split()
-            current_line = ""
-            for word in words:
-                if len(current_line) + len(word) + 1 > 70:
-                    print(header_color + f"│   {current_line}")
-                    current_line = word
-                else:
-                    current_line = current_line + " " + word if current_line else word
-            if current_line:
-                print(header_color + f"│   {current_line}")
-    
-    print(header_color + "└" + "─" * 78 + "┘" + Style.RESET_ALL)
-
-
-def print_summary(results: List[Dict]):
-    """Print a summary table of all routes"""
-    print()
-    print(Fore.CYAN + "─" * 80)
-    print(Fore.CYAN + Style.BRIGHT + "📊 SUMMARY OF ALL ROUTES")
-    print(Fore.CYAN + "─" * 80)
-    
-    # Prepare table data
-    table_data = []
-    for r in results:
-        delta = r['delta']
-        if delta > 0:
-            action_display = Fore.GREEN + f"+{delta}" + Style.RESET_ALL
-            status = "ADD"
-        elif delta < 0:
-            action_display = Fore.YELLOW + f"{delta}" + Style.RESET_ALL
-            status = "REMOVE"
-        else:
-            action_display = Fore.BLUE + "0" + Style.RESET_ALL
-            status = "KEEP"
-        
-        table_data.append([
-            r['route_name'][:20],
-            r['current_fleet'],
-            r['recommended_fleet'],
-            action_display,
-            f"{r['headway']}min",
-            f"{int(r['predicted_demand'])}",
-            f"{int(r['confidence'] * 100)}%",
-            f"{len(r['signals'])}" + (" 🔴" if len(r['signals']) > 0 else " 🟢"),
-            status
-        ])
-    
-    headers = ["Route", "Current", "Rec", "Δ", "Headway", "Demand", "Conf", "Events", "Action"]
-    print(tabulate(table_data, headers=headers, tablefmt="grid"))
-    
-    # Total impact
-    total_delta = sum(r['delta'] for r in results)
-    total_add = sum(1 for r in results if r['delta'] > 0)
-    
-    print()
-    print(Fore.CYAN + "─" * 80)
-    if total_delta > 0:
-        print(Fore.GREEN + f"📈 TOTAL IMPACT: +{total_delta} buses added across {total_add} routes")
-    elif total_delta < 0:
-        print(Fore.YELLOW + f"📉 TOTAL IMPACT: {total_delta} buses removed")
-    else:
-        print(Fore.BLUE + "✅ TOTAL IMPACT: No changes needed - all routes optimized")
-    print(Fore.CYAN + "─" * 80 + Style.RESET_ALL)
-
-
-# ---------------------------------------------------------------------------
 # Main Fetch and Analyze Function
 # ---------------------------------------------------------------------------
 
 def fetch_and_analyze(use_ai: bool = True, route_filter: Optional[str] = None):
     """Fetch signals and analyze all routes"""
     
-    print_header()
+    print("=" * 80)
+    print("BMTC DYNAMIC BUS OPTIMIZATION SYSTEM")
+    print("=" * 80)
+    print(f"Location: Bangalore, India | {datetime.now().strftime('%A, %B %d, %Y %H:%M:%S')}")
+    print("=" * 80)
+    print()
     
     # 1. Fetch signals
-    print(Fore.YELLOW + "📡 FETCHING SIGNALS..." + Style.RESET_ALL)
+    print("FETCHING SIGNALS...")
     
-    # Fetch from PredictHQ (with free API fallback)
     try:
         phq_count = refresh_predicthq_signals()
-        print(f"  • PredictHQ/Free APIs: {phq_count} signals")
+        print(f"  - PredictHQ/Free APIs: {phq_count} signals")
     except Exception as e:
-        print(f"  • PredictHQ: Error - {e}")
+        print(f"  - PredictHQ: Error - {e}")
         phq_count = 0
     
-    # Fetch from Exam Calendars
     try:
         exam_count = refresh_exam_signals()
-        print(f"  • Exam Calendars: {exam_count} signals")
+        print(f"  - Exam Calendars: {exam_count} signals")
     except Exception as e:
-        print(f"  • Exam Calendars: Error - {e}")
+        print(f"  - Exam Calendars: Error - {e}")
         exam_count = 0
     
     total_signals = len(signal_store.all_upcoming())
-    print(f"  • TOTAL ACTIVE SIGNALS: {total_signals}")
+    print(f"  - TOTAL ACTIVE SIGNALS: {total_signals}")
     print()
     
     # 2. Initialize AI Explainer
+# In fetch_and_analyze function, around line 168
+
+# 2. Initialize AI Explainer
     explainer = AIExplainer() if use_ai else None
     if use_ai and explainer:
-        print(Fore.CYAN + f"🧠 AI Explainer: {explainer.provider.upper()}" + Style.RESET_ALL)
-    
+        print(f"AI Explainer: {explainer.provider.upper()}")
+    else:
+        print("AI Explainer: Disabled (using template-based explanations)")
+        
     print()
-    print(Fore.CYAN + "─" * 80)
-    print(Fore.CYAN + Style.BRIGHT + "🔍 ANALYZING ROUTES" + Style.RESET_ALL)
-    print(Fore.CYAN + "─" * 80)
+    print("-" * 80)
+    print("ANALYZING ROUTES")
+    print("-" * 80)
     
     # 3. Analyze each route
     results = []
     routes_to_analyze = [route_filter] if route_filter else list(ROUTE_LOCATIONS.keys())
     
     for route_id in routes_to_analyze:
-        # Get current fleet (default to 10)
-        current_fleet = 10  # You can customize this
+        current_fleet = 5
         
-        # Get active signals for this route
         active_signals = signal_store.active_for_route(route_id)
         signals_data = [
             {
@@ -348,13 +196,9 @@ def fetch_and_analyze(use_ai: bool = True, route_filter: Optional[str] = None):
             for s in active_signals
         ]
         
-        # Predict demand
         predicted_demand, confidence = predict_demand_for_route(route_id, active_signals)
-        
-        # Optimize
         opt_result = optimize_frequency(predicted_demand, current_fleet)
         
-        # Get AI explanation
         if use_ai and explainer:
             explanation = explainer.generate_explanation(
                 route_name=ROUTE_NAMES.get(route_id, route_id),
@@ -372,7 +216,6 @@ def fetch_and_analyze(use_ai: bool = True, route_filter: Optional[str] = None):
                          f"Current fleet: {current_fleet} buses. " \
                          f"{'Adding' if opt_result['delta'] > 0 else 'Keeping'} {abs(opt_result['delta'])} buses."
         
-        # Store result
         result = {
             'route_id': route_id,
             'route_name': ROUTE_NAMES.get(route_id, route_id),
@@ -389,69 +232,128 @@ def fetch_and_analyze(use_ai: bool = True, route_filter: Optional[str] = None):
         }
         results.append(result)
         
-        # Print detailed analysis
-        print_route_analysis(
-            route_id=route_id,
-            route_name=result['route_name'],
-            current_fleet=current_fleet,
-            predicted_demand=predicted_demand,
-            confidence=confidence,
-            opt_result=opt_result,
-            active_signals=active_signals,
-            explanation=explanation
-        )
+        # Print analysis
+        print()
+        print(f"Route: {result['route_name']} ({route_id})")
+        print(f"  Current Fleet: {current_fleet} buses")
+        print(f"  Recommended: {opt_result['fleet']} buses ({opt_result['action_label']} {abs(opt_result['delta']) if opt_result['delta'] != 0 else 'no change'})")
+        print(f"  Headway: {opt_result['headway']} minutes")
+        print(f"  Predicted Demand: {int(predicted_demand)} passengers")
+        print(f"  Confidence: {int(confidence * 100)}%")
+        
+        if active_signals:
+            print(f"  Active Signals ({len(active_signals)}):")
+            for sig in active_signals[:3]:
+                routes = ", ".join(sig.affected_routes[:2]) if sig.affected_routes else "none"
+                print(f"    - {sig.name} -> {routes}")
+            if len(active_signals) > 3:
+                print(f"    ... and {len(active_signals) - 3} more")
+        
+        print("  Explanation:")
+        cleaned_explanation = clean_text(explanation)
+        for line in cleaned_explanation.split('\n'):
+            if line.strip():
+                print(f"    {line}")
     
     # 4. Print summary
-    print_summary(results)
+    print()
+    print("-" * 80)
+    print("SUMMARY OF ALL ROUTES")
+    print("-" * 80)
+    
+    print(f"{'Route':<20} {'Current':<8} {'Rec':<8} {'Delta':<8} {'Headway':<10} {'Demand':<10} {'Conf':<8} {'Events':<8} {'Action'}")
+    print("-" * 80)
+    
+    for r in results:
+        delta = r['delta']
+        if delta > 0:
+            delta_display = f"+{delta}"
+        elif delta < 0:
+            delta_display = f"{delta}"
+        else:
+            delta_display = "0"
+        
+        print(f"{r['route_name'][:18]:<20} {r['current_fleet']:<8} {r['recommended_fleet']:<8} {delta_display:<8} {r['headway']}min{' ':<6} {int(r['predicted_demand']):<10} {int(r['confidence'] * 100)}%{' ':<5} {len(r['signals']):<8} {r['action']}")
+    
+    total_delta = sum(r['delta'] for r in results)
+    total_add = sum(1 for r in results if r['delta'] > 0)
+    
+    print()
+    print("-" * 80)
+    if total_delta > 0:
+        print(f"TOTAL IMPACT: +{total_delta} buses added across {total_add} routes")
+    elif total_delta < 0:
+        print(f"TOTAL IMPACT: {total_delta} buses removed")
+    else:
+        print("TOTAL IMPACT: No changes needed - all routes optimized")
+    print("-" * 80)
     
     return results
 
 
-# ---------------------------------------------------------------------------
-# Continuous Runner
-# ---------------------------------------------------------------------------
-
 def run_continuous(interval: int = 60, use_ai: bool = True):
     """Run continuously with real-time updates"""
     
-    print(Fore.CYAN + "=" * 80)
-    print(Fore.CYAN + Style.BRIGHT + "🚍 BMTC DYNAMIC BUS OPTIMIZATION SYSTEM")
-    print(Fore.CYAN + "=" * 80)
-    print(Fore.YELLOW + f"📍 Running continuously - Updates every {interval} seconds")
-    print(Fore.YELLOW + "Press Ctrl+C to stop")
-    print(Fore.CYAN + "=" * 80 + Style.RESET_ALL)
+    print("=" * 80)
+    print("BMTC DYNAMIC BUS OPTIMIZATION SYSTEM")
+    print("=" * 80)
+    print(f"Running continuously - Updates every {interval} seconds")
+    print("Press Ctrl+C to stop")
+    print("=" * 80)
     print()
     
-    # Start the background scheduler
     scheduler = start_scheduler()
     
     try:
         cycle = 0
         while True:
             cycle += 1
-            print(Fore.CYAN + f"\n🔄 CYCLE {cycle} - {datetime.now().strftime('%H:%M:%S')}" + Style.RESET_ALL)
-            print(Fore.CYAN + "─" * 80 + Style.RESET_ALL)
+            print(f"\nCYCLE {cycle} - {datetime.now().strftime('%H:%M:%S')}")
+            print("-" * 80)
             
-            # Run analysis
             fetch_and_analyze(use_ai=use_ai)
             
-            # Wait for next cycle
-            print(Fore.YELLOW + f"\n⏳ Next update in {interval} seconds..." + Style.RESET_ALL)
+            print(f"\nNext update in {interval} seconds...")
             time.sleep(interval)
             
     except KeyboardInterrupt:
-        print(Fore.YELLOW + "\n\n🛑 Shutting down..." + Style.RESET_ALL)
+        print("\n\nShutting down...")
         scheduler.shutdown()
-        print(Fore.GREEN + "✅ Done." + Style.RESET_ALL)
+        print("Done.")
 
 
 # ---------------------------------------------------------------------------
 # Main Entry Point
 # ---------------------------------------------------------------------------
+def clean_text(text: str) -> str:
+    """Remove markdown formatting and emojis from text."""
+    # Remove bold/italic markdown
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)   # **bold** -> bold
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)       # *italic* -> italic
+    text = re.sub(r'__(.+?)__', r'\1', text)         # __underline__ -> underline
+    text = re.sub(r'_([^_]+)_', r'\1', text)         # _italic_ -> italic
+    
+    # Remove common emojis (simple range)
+    emoji_pattern = re.compile(
+        "["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags
+        u"\U00002702-\U000027B0"
+        u"\U000024C2-\U0001F251"
+        "]+", 
+        flags=re.UNICODE
+    )
+    text = emoji_pattern.sub(r'', text)
+    
+    # Remove extra spaces
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 def main():
     parser = argparse.ArgumentParser(
-        description="BMTC Route Optimization Runner with AI Explanations",
+        description="BMTC Route Optimization Runner",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -463,53 +365,26 @@ Examples:
         """
     )
     
-    parser.add_argument(
-        "--once",
-        action="store_true",
-        help="Run once and exit (default: continuous)"
-    )
-    parser.add_argument(
-        "--continuous",
-        type=int,
-        default=0,
-        help="Run continuously with updates every N seconds"
-    )
-    parser.add_argument(
-        "--no-ai",
-        action="store_true",
-        help="Disable AI explanations (use template-based)"
-    )
-    parser.add_argument(
-        "--route",
-        type=str,
-        help="Analyze only a specific route (e.g., 501BH)"
-    )
-    parser.add_argument(
-        "--interval",
-        type=int,
-        default=60,
-        help="Update interval in seconds (default: 60)"
-    )
+    parser.add_argument("--once", action="store_true", help="Run once and exit (default: continuous)")
+    parser.add_argument("--continuous", type=int, default=0, help="Run continuously with updates every N seconds")
+    parser.add_argument("--no-ai", action="store_true", help="Disable AI explanations (use template-based)")
+    parser.add_argument("--route", type=str, help="Analyze only a specific route (e.g., 501BH)")
+    parser.add_argument("--interval", type=int, default=60, help="Update interval in seconds (default: 60)")
     
     args = parser.parse_args()
     
     use_ai = not args.no_ai
     
-    # Run once
     if args.once:
         fetch_and_analyze(use_ai=use_ai, route_filter=args.route)
         return
     
-    # Continuous mode
     if args.continuous > 0:
         run_continuous(interval=args.continuous, use_ai=use_ai)
         return
     
-    # Default: run once
     fetch_and_analyze(use_ai=use_ai, route_filter=args.route)
 
 
 if __name__ == "__main__":
-    # Import math for calculations
-    import math
     main()

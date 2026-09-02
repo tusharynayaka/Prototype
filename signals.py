@@ -1,5 +1,5 @@
 """
-signals.py — Real-world demand signal aggregation layer.
+signals.py - Real-world demand signal aggregation layer.
 SIH 2026 | Team 501BH
 """
 
@@ -26,8 +26,6 @@ logger = logging.getLogger("bmtc_backend.signals")
 # Config
 # ---------------------------------------------------------------------------
 
-# Add this to signals.py after ROUTE_LOCATIONS (around line 38)
-
 ROUTE_LOCATIONS: Dict[str, tuple] = {
     "501BH": (12.9716, 77.5946),
     "335-E": (12.9767, 77.5713),
@@ -35,7 +33,6 @@ ROUTE_LOCATIONS: Dict[str, tuple] = {
     "500-D": (12.9081, 77.6476),
 }
 
-# ADD THIS:
 ROUTE_NAMES: Dict[str, str] = {
     "501BH": "Hebbal-BTM Layout",
     "335-E": "KBS-Electronic City",
@@ -54,7 +51,6 @@ LOOKAHEAD_HOURS = 6
 
 PREDICTHQ_API_KEY = os.environ.get("PREDICTHQ_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-EXTRACTION_MODEL = "openai/gpt-oss-120b"
 
 COLLEGE_CALENDAR_SOURCES: List[dict] = [
     {"name": "PES University", "url": "https://drive.google.com/uc?export=download&id=1iuPmdXAbK5bsLrh5LGSkVxaPXCHW57iT", "lat": 12.9351, "lon": 77.5350},
@@ -78,11 +74,8 @@ class Signal(BaseModel):
     raw_text: Optional[str] = None
     affected_routes: List[str] = Field(default_factory=list)
 
-    # Update the is_active_or_upcoming method in the Signal class (around line 72)
-
     def is_active_or_upcoming(self, at: datetime) -> bool:
         window_start = self.start_time - timedelta(hours=LOOKAHEAD_HOURS)
-        # Ensure both datetimes are timezone-aware for comparison
         if window_start.tzinfo is None:
             window_start = window_start.replace(tzinfo=timezone.utc)
         if at.tzinfo is None:
@@ -169,7 +162,6 @@ class FreeEventFetcher:
         """Fetch from Neighborhood Commons or generate mock data"""
         logger.info("Fetching from free API sources...")
         
-        # Try the actual Neighborhood Commons API first
         try:
             params = {
                 "lat": lat,
@@ -192,11 +184,9 @@ class FreeEventFetcher:
         except Exception as e:
             logger.warning(f"Free API failed: {e}, using mock data")
         
-        # Fallback to mock data
         return self._generate_mock_events(lat, lon, radius_km, days_ahead)
     
     def _convert_neighborhood_events(self, events: List[Dict]) -> List[Signal]:
-        """Convert Neighborhood Commons events to Signals"""
         signals = []
         for event in events:
             try:
@@ -239,9 +229,7 @@ class FreeEventFetcher:
         return signals
     
     def _generate_mock_events(self, lat: float, lon: float, radius_km: float, days_ahead: int) -> List[Signal]:
-        """Generate mock events for demo purposes"""
         logger.info("Generating mock events for demonstration...")
-        
         now = datetime.now(timezone.utc)
         
         mock_events = [
@@ -277,13 +265,10 @@ class FreeEventFetcher:
 
 
 def refresh_free_api_signals() -> int:
-    """Refresh signals from free APIs"""
     fetcher = FreeEventFetcher()
     signals = fetcher.fetch_from_neighborhood_commons(*BANGALORE_CENTER)
-    
     for sig in signals:
         signal_store.add(sig)
-    
     signal_store.purge_expired()
     logger.info(f"Free API refresh: {len(signals)} signal(s) ingested.")
     return len(signals)
@@ -327,7 +312,7 @@ def fetch_predicthq_signals(
             "https://api.predicthq.com/v1/events/",
             headers={"Authorization": f"Bearer {PREDICTHQ_API_KEY}", "Accept": "application/json"},
             params=params,
-            timeout=10,
+            timeout=30,
         )
         resp.raise_for_status()
     except requests.RequestException:
@@ -357,9 +342,8 @@ def fetch_predicthq_signals(
 
 
 def refresh_predicthq_signals() -> int:
-    """Fetch from PredictHQ, fallback to free APIs if unavailable"""
     if not PREDICTHQ_API_KEY:
-        logger.warning("PREDICTHQ_API_KEY not set — using free APIs.")
+        logger.warning("PREDICTHQ_API_KEY not set - using free APIs.")
         return refresh_free_api_signals()
     
     try:
@@ -371,10 +355,10 @@ def refresh_predicthq_signals() -> int:
             logger.info(f"PredictHQ refresh: {len(events)} signal(s) ingested.")
             return len(events)
         else:
-            logger.warning("PredictHQ returned no events — using free APIs.")
+            logger.warning("PredictHQ returned no events - using free APIs.")
             return refresh_free_api_signals()
     except Exception as e:
-        logger.error(f"PredictHQ failed: {e} — using free APIs.")
+        logger.error(f"PredictHQ failed: {e} - using free APIs.")
         return refresh_free_api_signals()
 
 
@@ -444,32 +428,33 @@ def fetch_text_from_source(url: str) -> str:
 
 def extract_exam_signals_via_llm(college_name: str, raw_text: str, lat: float, lon: float) -> List[Signal]:
     if not GROQ_API_KEY:
-        logger.warning("GROQ_API_KEY not set — skipping exam extraction for %s.", college_name)
-        return []
-
-    from groq import Groq
-    client = Groq(api_key=GROQ_API_KEY)
-
-    completion = client.chat.completions.create(
-        model=EXTRACTION_MODEL,
-        temperature=0,
-        max_tokens=2500,
-        messages=[
-            {"role": "system", "content": _EXTRACTION_SYSTEM_PROMPT},
-            {"role": "user", "content": raw_text[:5000]},
-        ],
-    )
+        logger.warning("GROQ_API_KEY not set - skipping exam extraction for %s.", college_name)
+        return generate_mock_exam_signals(college_name, lat, lon)
 
     try:
+        from groq import Groq
+        client = Groq(api_key=GROQ_API_KEY)
+        
+        completion = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {"role": "system", "content": _EXTRACTION_SYSTEM_PROMPT},
+                {"role": "user", "content": raw_text[:5000]},
+            ],
+            temperature=0,
+            max_tokens=2500
+        )
+        
         content = completion.choices[0].message.content or ""
         content = content.strip()
         if content.startswith("```"):
             content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.IGNORECASE)
         items = json.loads(content)
-    except (json.JSONDecodeError, IndexError, AttributeError, TypeError):
-        logger.warning("Exam extraction returned non-JSON for %s", college_name)
-        return []
-
+        
+    except Exception as e:
+        logger.warning(f"Groq extraction failed for {college_name}: {e}, using mock data")
+        return generate_mock_exam_signals(college_name, lat, lon)
+    
     signals: List[Signal] = []
     for item in items:
         try:
@@ -491,6 +476,39 @@ def extract_exam_signals_via_llm(college_name: str, raw_text: str, lat: float, l
             ))
         except (KeyError, ValueError):
             continue
+    return signals
+
+
+def generate_mock_exam_signals(college_name: str, lat: float, lon: float) -> List[Signal]:
+    """Generate mock exam signals when Groq is unavailable"""
+    logger.info(f"Generating mock exam data for {college_name}")
+    
+    now = datetime.now(timezone.utc)
+    signals = []
+    
+    mock_exams = [
+        {"name": "Mid-term Examinations", "start": now + timedelta(days=7), "end": now + timedelta(days=10)},
+        {"name": "End Semester Examinations", "start": now + timedelta(days=21), "end": now + timedelta(days=28)},
+        {"name": "Practical Examinations", "start": now + timedelta(days=14), "end": now + timedelta(days=16)},
+    ]
+    
+    for exam in mock_exams:
+        signal = Signal(
+            signal_id=f"mock_exam_{college_name}_{exam['name'].replace(' ', '_')}",
+            source="exam_calendar",
+            category="exam",
+            name=f"{college_name}: {exam['name']}",
+            lat=lat,
+            lon=lon,
+            start_time=exam["start"],
+            end_time=exam["end"],
+            expected_scale="medium",
+            confidence=0.7,
+            raw_text=f"Mock exam: {exam['name']}",
+            affected_routes=COLLEGE_ROUTES.get(college_name, []),
+        )
+        signals.append(signal)
+    
     return signals
 
 

@@ -36,8 +36,8 @@ class AIExplainer:
     def __init__(self):
         self.groq_client = None
         self.gemini_client = None
-        self.provider = None
-        
+        self.provider = "template"  # default fallback
+
         # Try Groq first
         groq_key = os.environ.get("GROQ_API_KEY")
         if groq_key and GROQ_AVAILABLE:
@@ -48,7 +48,7 @@ class AIExplainer:
                 return
             except Exception as e:
                 logger.warning(f"Failed to initialize Groq: {e}")
-        
+
         # Try Gemini as fallback
         gemini_key = os.environ.get("GEMINI_API_KEY")
         if gemini_key and GEMINI_AVAILABLE:
@@ -60,11 +60,9 @@ class AIExplainer:
                 return
             except Exception as e:
                 logger.warning(f"Failed to initialize Gemini: {e}")
-        
-        # No AI available, use template-based explanations
-        self.provider = "template"
-        logger.info("AI Explainer using template-based explanations")
-    
+
+        # If no AI works, keep provider="template"
+        logger.info("AI Explainer using template-based explanations")               
     def generate_explanation(
         self,
         route_name: str,
@@ -109,7 +107,6 @@ class AIExplainer:
     ) -> str:
         """Generate explanation using Groq LLM"""
         
-        # Build context about signals
         signals_text = ""
         if active_signals:
             for sig in active_signals:
@@ -117,11 +114,12 @@ class AIExplainer:
         else:
             signals_text = "No active events detected"
         
-        # Build the prompt
         prompt = f"""
 You are a public transportation operations expert for BMTC (Bangalore Metropolitan Transport Corporation).
 
 Provide a clear, concise, and human-readable explanation for a bus frequency optimization recommendation.
+
+Make sure its consies and under 5 points each with at mots 20 words.
 
 ROUTE: {route_name} ({route_id})
 CURRENT FLEET: {current_fleet} buses
@@ -139,13 +137,12 @@ Please provide a professional explanation that covers:
 2. WHAT this means for passengers (wait times, crowding)
 3. HOW this affects operations (fleet usage, efficiency)
 
-Keep it to 3-4 paragraphs. Be specific and use the actual numbers provided.
 Be professional but accessible to non-technical stakeholders.
 """
         
         try:
             completion = self.groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="openai/gpt-oss-120b",
                 messages=[
                     {"role": "system", "content": "You are a public transportation operations expert providing clear, professional explanations."},
                     {"role": "user", "content": prompt}
@@ -178,7 +175,6 @@ Be professional but accessible to non-technical stakeholders.
     ) -> str:
         """Generate explanation using Gemini"""
         
-        # Build context about signals
         signals_text = ""
         if active_signals:
             for sig in active_signals:
@@ -241,10 +237,8 @@ Keep it to 3-4 paragraphs. Be specific and use the actual numbers provided.
         recommended_capacity = recommended_fleet * 45
         delta = recommended_fleet - current_fleet
         
-        # Build explanation parts
         parts = []
         
-        # 1. Demand analysis
         if delta > 0:
             parts.append(
                 f"Based on predicted demand of approximately {int(predicted_demand)} passengers "
@@ -257,8 +251,7 @@ Keep it to 3-4 paragraphs. Be specific and use the actual numbers provided.
                 f"Based on predicted demand of approximately {int(predicted_demand)} passengers "
                 f"(confidence: {int(confidence * 100)}%), we recommend reducing the fleet by "
                 f"{abs(delta)} bus{'es' if abs(delta) > 1 else ''} on Route {route_id} ({route_name}). "
-                f"This will adjust capacity from {current_capacity} to {recommended_capacity} passengers, "
-                f"matching current demand levels."
+                f"This will adjust capacity from {current_capacity} to {recommended_capacity} passengers."
             )
         else:
             parts.append(
@@ -267,7 +260,6 @@ Keep it to 3-4 paragraphs. Be specific and use the actual numbers provided.
                 f"on Route {route_id} ({route_name}) is well-suited. No changes are needed at this time."
             )
         
-        # 2. Events impact
         if active_signals:
             event_names = [s.get('name', 'Unknown') for s in active_signals[:3]]
             parts.append(
@@ -276,7 +268,6 @@ Keep it to 3-4 paragraphs. Be specific and use the actual numbers provided.
                 f"These events are expected to increase passenger demand during the affected periods."
             )
         
-        # 3. Passenger impact
         if delta > 0:
             parts.append(
                 f"With the recommended {headway}-minute headway, passengers will experience "

@@ -1,17 +1,17 @@
 """
-BMTC Dynamic ML-Based Bus Frequency Optimization — Backend
+BMTC Dynamic ML-Based Bus Frequency Optimization - Backend
 SIH 2026 | Team 501BH
 
-Design principles (per your last messages + Book1.xlsx reference sheet):
-  - We NEVER cancel a trip that's already running. Buses on route stay on route.
-  - "Frequency optimization" = deciding headway / how many buses run on the
-    corridor over the next planning window, not diverting or short-turning.
-  - Stop-level decisions (skip vs serve) are separate and evaluated per stop,
-    per bus arrival — a bus can skip ONE stop with zero demand and keep going.
-  - Real optimizer (OR-Tools CP-SAT) picks fleet size, with a deterministic
-    greedy fallback if the solver times out or ML confidence is low.
-  - Anti-oscillation: a route's target fleet size can't flip back and forth
-    every request — mirrors "decision stability" note in your reference sheet.
+Design principles:
+- We NEVER cancel a trip that's already running. Buses on route stay on route.
+- "Frequency optimization" = deciding headway / how many buses run on the
+  corridor over the next planning window, not diverting or short-turning.
+- Stop-level decisions (skip vs serve) are separate and evaluated per stop,
+  per bus arrival - a bus can skip ONE stop with zero demand and keep going.
+- Real optimizer (OR-Tools CP-SAT) picks fleet size, with a deterministic
+  greedy fallback if the solver times out or ML confidence is low.
+- Anti-oscillation: a route's target fleet size can't flip back and forth
+  every request.
 
 Run:
     pip install fastapi uvicorn xgboost pandas numpy scikit-learn ortools
@@ -27,6 +27,7 @@ import pandas as pd
 import xgboost as xgb
 import logging
 import time
+import math
 
 from ortools.sat.python import cp_model
 
@@ -35,8 +36,13 @@ from signals import (
     ManualSignalRequest,
     add_manual_signal,
     refresh_predicthq_signals,
+    refresh_exam_signals,
     start_scheduler,
+    ROUTE_NAMES,
 )
+from deployment_api import router as deployment_router
+from cost_calculator import cost_calculator, DeploymentStatus, format_cost
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("bmtc_backend")
@@ -47,9 +53,6 @@ app = FastAPI(
     description="SIH 2026 (501BH) - ML demand forecasting + OR-Tools frequency optimization",
 )
 
-# Local dev only — the control-room frontend (served from a file:// page or a
-# different port) needs to call this API from the browser. Lock this down to
-# your actual frontend origin before deploying anywhere real.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -60,16 +63,15 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-BUS_CAPACITY = 45              # effective passengers per bus per trip
-TURNAROUND_MINUTES = 90.0      # full round-trip cycle time for this corridor
-MIN_FREQUENCY_MIN = 4          # never schedule tighter than this
-MAX_FREQUENCY_MIN = 30         # never let headway drift looser than this
-COST_PER_EXTRA_BUS = 1.0       # relative operating cost unit (fuel+driver+wear)
-WAIT_PENALTY_WEIGHT = 1.2      # relative passenger-waiting cost unit
-OSCILLATION_COOLDOWN_SEC = 15 * 60   # don't flip fleet size within this window
+BUS_CAPACITY = 45
+TURNAROUND_MINUTES = 90.0
+MIN_FREQUENCY_MIN = 4
+MAX_FREQUENCY_MIN = 30
+COST_PER_EXTRA_BUS = 1.0
+WAIT_PENALTY_WEIGHT = 1.2
+OSCILLATION_COOLDOWN_SEC = 15 * 60
 CONFIDENCE_FALLBACK_THRESHOLD = 0.50
 
-# In-memory "last decision per route" store — swap for Redis in production
 ROUTE_STATE: Dict[str, dict] = {}
 
 
@@ -92,11 +94,11 @@ class OptimizationRecommendation(BaseModel):
     confidence_score: float
     recommended_frequency_minutes: int
     recommended_fleet_allocation: int
-    delta_buses: int                  # +N buses to add, -N to release back to pool
-    action_type: str                  # DEPLOY_EXTRA_BUS / RELEASE_BUS / MAINTAIN_SCHEDULE
-    solver_used: str                  # "or_tools" / "greedy_fallback" / "schedule_fallback"
+    delta_buses: int
+    action_type: str
+    solver_used: str
     reasoning: str
-    detected_signals: List[str] = Field(default_factory=list)  # real-world signals factored in
+    detected_signals: List[str] = Field(default_factory=list)
 
 
 class StopOptimizationRequest(BaseModel):
@@ -111,7 +113,7 @@ class StopOptimizationResponse(BaseModel):
     route_id: str
     stop_id: str
     stop_name: str
-    action_type: str   # SERVE_STOP / SKIP_STOP_DYNAMIC / ALERT_OVERCROWDING
+    action_type: str
     reasoning: str
 
 
@@ -119,9 +121,7 @@ class StopOptimizationResponse(BaseModel):
 # 1. ML Demand Forecasting
 # ---------------------------------------------------------------------------
 class DemandForecaster:
-    """XGBoost regressor over hour/day/weather/speed/event features.
-    Trained on synthetic data now — swap _train_dummy_model's X/y for your
-    real ETM + GTFS history once you have it logged."""
+    """XGBoost regressor over hour/day/weather/speed/event features."""
 
     def __init__(self):
         self.model: Optional[xgb.XGBRegressor] = None
@@ -172,10 +172,6 @@ class DemandForecaster:
         df = pd.DataFrame([features])
         pred = float(self.model.predict(df)[0])
 
-        # Confidence heuristic: penalize bad weather / events / extreme hours,
-        # since those are exactly the conditions our synthetic training data
-        # is thinnest on. Replace with real prediction-interval width (SHAP /
-        # quantile regression) once you're training on live data.
         confidence = 0.90
         if features["weather_condition"] != 0:
             confidence -= 0.15
@@ -195,13 +191,6 @@ forecaster = DemandForecaster()
 # 2. OR-Tools fleet/frequency optimizer (+ greedy fallback)
 # ---------------------------------------------------------------------------
 def _candidate_table(current_fleet: int, predicted_demand: float):
-    """Precompute (fleet, headway, cost) for every feasible fleet size.
-    Costs are plain integers computed in Python, then handed to CP-SAT as an
-    allowed-assignment table — this keeps the model a straightforward
-    constraint-satisfaction/optimization problem (no variable*variable
-    multiplication, which CP-SAT can't do directly) while still letting the
-    solver pick the minimum-cost row, same as a real MILP fleet-sizing model
-    would."""
     min_fleet, max_fleet = 1, current_fleet + 6
     rows = []
     for fleet in range(min_fleet, max_fleet + 1):
@@ -219,10 +208,6 @@ def _candidate_table(current_fleet: int, predicted_demand: float):
 
 
 def solve_with_or_tools(predicted_demand: float, current_fleet: int) -> Optional[dict]:
-    """CP-SAT model: choose the (fleet, headway) pair from the feasibility
-    table that minimizes total cost = operating cost + passenger waiting
-    cost. This is the 'rolling-horizon allocation' step from your reference
-    sheet, simplified to a single-route decision per call."""
     rows = _candidate_table(current_fleet, predicted_demand)
     if not rows:
         return None
@@ -251,18 +236,13 @@ def solve_with_or_tools(predicted_demand: float, current_fleet: int) -> Optional
 
 
 def greedy_fallback(predicted_demand: float, current_fleet: int) -> dict:
-    """Deterministic, explainable fallback: buses needed = ceil(demand / capacity),
-    clamped so we never ask for more than +4 buses in one shot."""
-    buses_needed = int(np.ceil(predicted_demand / BUS_CAPACITY))
+    buses_needed = int(math.ceil(predicted_demand / BUS_CAPACITY))
     fleet = max(1, min(buses_needed, current_fleet + 4))
     headway = max(MIN_FREQUENCY_MIN, min(MAX_FREQUENCY_MIN, int(TURNAROUND_MINUTES / fleet)))
     return {"fleet": fleet, "headway": headway}
 
 
 def apply_anti_oscillation(route_id: str, proposed_fleet: int, current_fleet: int) -> int:
-    """If we changed this route's target fleet size very recently, damp a
-    flip-flop back toward the previous target unless the new signal is strong
-    (>=2 bus difference)."""
     now = time.time()
     state = ROUTE_STATE.get(route_id)
 
@@ -274,7 +254,6 @@ def apply_anti_oscillation(route_id: str, proposed_fleet: int, current_fleet: in
     last_fleet = state["fleet"]
 
     if since_last < OSCILLATION_COOLDOWN_SEC and abs(proposed_fleet - last_fleet) < 2:
-        # not enough new evidence to justify changing again so soon
         stabilized = last_fleet
     else:
         stabilized = proposed_fleet
@@ -288,7 +267,7 @@ def optimize_frequency(predicted_demand: float, current_fleet: int, route_id: st
     solver_used = "or_tools"
 
     if result is None:
-        logger.warning("OR-Tools solve failed/timed out for %s — using greedy fallback.", route_id)
+        logger.warning("OR-Tools solve failed/timed out for %s - using greedy fallback.", route_id)
         result = greedy_fallback(predicted_demand, current_fleet)
         solver_used = "greedy_fallback"
 
@@ -299,7 +278,7 @@ def optimize_frequency(predicted_demand: float, current_fleet: int, route_id: st
     if delta > 0:
         action = "DEPLOY_EXTRA_BUS"
     elif delta < 0:
-        action = "RELEASE_BUS_TO_POOL"   # buses already running finish their trip; only the NEXT dispatch is skipped
+        action = "RELEASE_BUS_TO_POOL"
     else:
         action = "MAINTAIN_SCHEDULE"
 
@@ -317,9 +296,6 @@ def optimize_frequency(predicted_demand: float, current_fleet: int, route_id: st
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 def _start_signal_scheduler():
-    """Kicks off the background pollers (PredictHQ + exam calendars). This is
-    the piece that replaces a person manually checking event listings once a
-    week — see signals.py."""
     start_scheduler()
 
 
@@ -331,9 +307,6 @@ def read_root():
 @app.post("/api/optimize", response_model=OptimizationRecommendation)
 def get_optimization_recommendation(payload: RouteOptimizationRequest):
     try:
-        # Live signals replace the old approach of trusting whatever the
-        # caller happened to pass in is_event_nearby — this is the part that
-        # used to be a person manually checking event listings once a week.
         active_signals = signal_store.active_for_route(payload.route_id)
         signal_names = [f"{s.name} ({s.category}, {s.expected_scale})" for s in active_signals]
 
@@ -359,8 +332,7 @@ def get_optimization_recommendation(payload: RouteOptimizationRequest):
                 solver_used="schedule_fallback",
                 reasoning=(
                     f"Confidence {confidence} is below the {CONFIDENCE_FALLBACK_THRESHOLD} "
-                    "safety threshold, so the system falls back to the standard fixed schedule "
-                    "instead of trusting a shaky prediction."
+                    "safety threshold, so the system falls back to the standard fixed schedule."
                 ),
                 detected_signals=signal_names,
             )
@@ -372,11 +344,11 @@ def get_optimization_recommendation(payload: RouteOptimizationRequest):
             f"(confidence {confidence}). {opt['solver_used']} recommends "
             f"{opt['fleet']} buses at a {opt['headway']}-min headway "
             f"({'+' if opt['delta'] >= 0 else ''}{opt['delta']} vs current fleet). "
-            "No bus already on its trip is pulled off route — this only changes "
+            "No bus already on its trip is pulled off route - this only changes "
             "how many buses are dispatched on the next cycle."
         )
         if signal_names:
-            reasoning += f" Live signal feed found: {', '.join(signal_names)} — factored in as an active event."
+            reasoning += f" Live signal feed found: {', '.join(signal_names)} - factored in as an active event."
 
         return OptimizationRecommendation(
             route_id=payload.route_id,
@@ -398,24 +370,20 @@ def get_optimization_recommendation(payload: RouteOptimizationRequest):
 
 @app.post("/api/optimize-stop", response_model=StopOptimizationResponse)
 def optimize_stop_level(payload: StopOptimizationRequest):
-    """Per-stop decision, independent of the route-level frequency call.
-    A bus already en route can skip ONE stop with zero waiting passengers
-    without affecting its trip status or the rest of its schedule."""
     action = "SERVE_STOP"
-    reasoning = "Normal passenger load detected — bus stops as scheduled."
+    reasoning = "Normal passenger load detected - bus stops as scheduled."
 
     if payload.current_waiting_passengers == 0:
         action = "SKIP_STOP_DYNAMIC"
         reasoning = (
             f"No waiting passengers at {payload.stop_name}. The bus bypasses this "
-            "one stop and continues its trip normally — nothing about the trip itself changes."
+            "one stop and continues its trip normally."
         )
     elif payload.current_waiting_passengers > payload.bus_capacity_available:
         action = "ALERT_OVERCROWDING"
         reasoning = (
             f"{payload.current_waiting_passengers} waiting at {payload.stop_name} exceeds "
-            f"available capacity ({payload.bus_capacity_available}). Flagging for a trailing "
-            "buffer bus rather than overloading this one."
+            f"available capacity ({payload.bus_capacity_available}). Flagging for a trailing buffer bus."
         )
 
     return StopOptimizationResponse(
@@ -429,9 +397,6 @@ def optimize_stop_level(payload: StopOptimizationRequest):
 
 @app.post("/api/signals")
 def create_manual_signal(payload: ManualSignalRequest):
-    """The human-in-the-loop escape hatch: add anything automation missed
-    (a one-off local event) once, and it stays live until it expires —
-    no re-editing a spreadsheet every week."""
     signal = add_manual_signal(payload)
     return {
         "signal_id": signal.signal_id,
@@ -442,29 +407,21 @@ def create_manual_signal(payload: ManualSignalRequest):
 
 @app.get("/api/signals")
 def list_signals():
-    """Everything currently active or upcoming, across all sources — useful
-    for a dashboard view or for debugging why a route's demand changed."""
-    return [s.dict() for s in signal_store.all_upcoming()]  # .dict() works on both pydantic v1 and v2
+    return [s.dict() for s in signal_store.all_upcoming()]
 
 
 @app.post("/api/signals/refresh")
 def trigger_signal_refresh():
-    """Manually kick a PredictHQ pull instead of waiting for the scheduler —
-    handy for demos."""
     count = refresh_predicthq_signals()
     return {"status": "refreshed", "new_or_updated": count, "total_active": len(signal_store.all_upcoming())}
 
 
 @app.get("/api/live-buses")
 def get_live_buses():
-    """Mock bus feed shaped like what the frontend map expects. Replace the
-    sample_active_buses list with a real GTFS-Realtime VehiclePositions feed
-    or BMTC's own feed once you have access — the frontend doesn't need to
-    change, just point it at real data with this same shape."""
     return {
         "source_portal": "https://nammabmtcapp.karnataka.gov.in/commuter/track-a-bus",
-        "note": "Direct scraping of this portal will likely hit CORS/anti-bot walls — "
-                "plan to get real feed access via BMTC/GTFS-Realtime instead of polling the site.",
+        "note": "Direct scraping of this portal will likely hit CORS/anti-bot walls - "
+                "plan to get real feed access via BMTC/GTFS-Realtime.",
         "sample_active_buses": [
             {"bus_id": "KA-01-F-1234", "route": "335-E", "lat": 12.9767, "lon": 77.5713, "speed": 9.2, "status": "delayed", "delay_min": 12},
             {"bus_id": "KA-01-F-5678", "route": "500-C", "lat": 12.9250, "lon": 77.6228, "speed": 21.4, "status": "on_time", "delay_min": 0},
@@ -474,13 +431,8 @@ def get_live_buses():
     }
 
 
-# Add to main.py after the existing endpoints
-
 @app.post("/api/fetch/all")
 def fetch_all_signals_endpoint():
-    """Fetch signals from all configured sources"""
-    from signals import refresh_predicthq_signals, refresh_exam_signals, signal_store
-    
     results = {
         "predicthq": 0,
         "exam_calendars": 0,
@@ -510,11 +462,7 @@ def fetch_all_signals_endpoint():
 
 @app.post("/api/fetch/predicthq")
 def fetch_predicthq_endpoint():
-    """Fetch only PredictHQ signals"""
-    from signals import refresh_predicthq_signals, signal_store
-    
     count = refresh_predicthq_signals()
-    
     return {
         "status": "success",
         "source": "predicthq",
@@ -525,11 +473,7 @@ def fetch_predicthq_endpoint():
 
 @app.post("/api/fetch/exams")
 def fetch_exams_endpoint():
-    """Fetch only exam calendar signals"""
-    from signals import refresh_exam_signals, signal_store
-    
     count = refresh_exam_signals()
-    
     return {
         "status": "success",
         "source": "exam_calendars",
@@ -540,25 +484,15 @@ def fetch_exams_endpoint():
 
 @app.get("/api/signals/status")
 def signals_status():
-    """Get current signal store status"""
-    from signals import signal_store, ROUTE_LOCATIONS
-    
     all_signals = signal_store.all_upcoming()
     
     by_source = {}
     for sig in all_signals:
         by_source[sig.source] = by_source.get(sig.source, 0) + 1
     
-    by_route = {}
-    for route_id in ROUTE_LOCATIONS.keys():
-        active = signal_store.active_for_route(route_id)
-        if active:
-            by_route[route_id] = [s.name for s in active]
-    
     return {
         "total_active": len(all_signals),
         "by_source": by_source,
-        "by_route": by_route,
         "signals": [
             {
                 "id": s.signal_id,
@@ -569,9 +503,10 @@ def signals_status():
                 "start": s.start_time.isoformat(),
                 "end": s.end_time.isoformat()
             }
-            for s in all_signals[:20]  # Limit to 20 for response size
+            for s in all_signals[:20]
         ]
     }
 
 
-    
+# Include deployment router
+app.include_router(deployment_router)
