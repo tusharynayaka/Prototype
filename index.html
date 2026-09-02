@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>501BH · Control Room</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet"/>
+<title>BMTC Control Room · Real-Time Intelligence, Route Search & Frequency Optimization</title>
+<meta name="description" content="Live BMTC Bus Search, Real-Time Telemetry & WorldMonitor OSINT Intelligence Radar for Bengaluru Transit Corridors."/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
@@ -48,178 +49,371 @@
   body { font-family: 'Inter', sans-serif; }
   .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
   .icon-fill { font-variation-settings: 'FILL' 1; }
-  #map { position: absolute; inset: 0; height: 100%; width: 100%; background: #dcd9db; z-index: 1; }
-  .leaflet-popup-content-wrapper { border-radius: 8px; }
+  #map { position: absolute; inset: 0; height: 100%; width: 100%; background: #1a1e29; z-index: 1; }
+  .leaflet-popup-content-wrapper { border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3); border: 1px solid rgba(0,0,0,0.1); }
   .rail:not(:hover) .rail-label { display: none; }
   .rail:not(:hover) { width: 64px; }
-  .rail:hover { width: 208px; }
-  .panel-collapsed { transform: translateX(calc(100% - 40px)); }
-  #events-panel, #right-panel { z-index: 25; }
+  .rail:hover { width: 220px; }
+  .panel-collapsed-left  { transform: translateX(calc(-100% + 40px)); }
+  .panel-collapsed-right { transform: translateX(calc(100%  - 40px)); }
+  #events-panel, #right-panel, #route-modal-panel { z-index: 25; }
   header { z-index: 40; }
   footer { z-index: 35; }
-  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-thumb { background: #c6c6cd; border-radius: 4px; }
-  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  @keyframes pulse-dot { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.35; transform:scale(1.2); } }
   .live-dot { animation: pulse-dot 1.6s ease-in-out infinite; }
+  @keyframes radar-sweep { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  .radar-sweep { animation: radar-sweep 4s linear infinite; }
+  @keyframes slide-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
+  .event-card { animation: slide-in .22s ease; }
+  @keyframes ticker-scroll { from { transform:translateX(100%); } to { transform:translateX(-100%); } }
+  #news-ticker-inner { animation: ticker-scroll 34s linear infinite; white-space:nowrap; }
+  #news-ticker-inner:hover { animation-play-state: paused; }
+  .conf-bar { transition: width .4s ease; }
+  .src-btp    { background:#dc262622; color:#b91c1c; border-color:#dc262644; }
+  .src-reddit { background:#ff450022; color:#c2410c; border-color:#ff450044; }
+  .src-imd    { background:#0284c722; color:#0369a1; border-color:#0284c744; }
+  .src-toi    { background:#f59e0b22; color:#b45309; border-color:#f59e0b44; }
+  .src-hindu  { background:#ef444422; color:#b91c1c; border-color:#ef444444; }
+  .src-dh     { background:#3b82f622; color:#1d4ed8; border-color:#3b82f644; }
+  .src-ndtv   { background:#8b5cf622; color:#6d28d9; border-color:#8b5cf644; }
+  .src-mirror { background:#10b98122; color:#047857; border-color:#10b98144; }
+  .src-inshorts{ background:#f9731622; color:#c2410c; border-color:#f9731644; }
+  .src-pes    { background:#06b6d422; color:#0e7490; border-color:#06b6d444; }
+  .src-default{ background:#6b728022; color:#374151; border-color:#6b728044; }
+  .glass-panel { background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  .glass-dark  { background: rgba(19, 27, 46, 0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 </style>
 </head>
 <body class="bg-surface-container-low text-on-surface w-full h-screen overflow-hidden flex text-sm">
 
+<!-- ── Side rail nav ────────────────────────────────────────────────────────── -->
 <nav class="rail hidden md:flex bg-surface-container text-on-surface-variant border-r border-outline-variant fixed left-0 top-0 h-full flex-col py-4 z-40 shrink-0 shadow-lg transition-[width] duration-150 overflow-hidden">
-  <div class="px-4 mb-6 flex items-center gap-2 shrink-0">
-    <span class="material-symbols-outlined text-primary text-[26px] shrink-0">route</span>
+  <div class="px-4 mb-5 flex items-center gap-2 shrink-0">
+    <div class="w-8 h-8 rounded-lg bg-secondary-container text-white flex items-center justify-center font-bold shrink-0 shadow-sm">
+      <span class="material-symbols-outlined text-[20px]">directions_bus</span>
+    </div>
     <div class="rail-label leading-tight">
-      <div class="font-bold text-on-surface whitespace-nowrap">Control Room</div>
-      <div class="text-[10px] uppercase tracking-widest text-on-surface-variant whitespace-nowrap">501BH · Live Optimization</div>
+      <div class="font-bold text-on-surface whitespace-nowrap">BMTC Control Room</div>
+      <div class="text-[10px] uppercase tracking-widest text-secondary font-semibold whitespace-nowrap">SIH · Team 501BH</div>
     </div>
   </div>
   <ul class="flex flex-col gap-1 px-3 flex-grow">
-    <li><a class="bg-secondary-container text-on-secondary-container rounded-lg font-bold flex items-center gap-3 px-3 py-2.5" href="#">
-      <span class="material-symbols-outlined icon-fill shrink-0">map</span><span class="rail-label whitespace-nowrap">Live Map</span></a></li>
-    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5" href="#">
-      <span class="material-symbols-outlined shrink-0">monitoring</span><span class="rail-label whitespace-nowrap">Analytics</span></a></li>
-    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5" href="#">
-      <span class="material-symbols-outlined shrink-0">directions_bus</span><span class="rail-label whitespace-nowrap">Fleet Management</span></a></li>
-    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5" href="#">
-      <span class="material-symbols-outlined shrink-0">history</span><span class="rail-label whitespace-nowrap">History</span></a></li>
-    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5" href="#">
-      <span class="material-symbols-outlined shrink-0">settings_suggest</span><span class="rail-label whitespace-nowrap">AI Config</span></a></li>
+    <li><a class="bg-secondary-container text-on-secondary-container rounded-lg font-bold flex items-center gap-3 px-3 py-2.5 shadow-sm" href="#">
+      <span class="material-symbols-outlined icon-fill shrink-0">map</span><span class="rail-label whitespace-nowrap">Live Map & Search</span></a></li>
+    <li><a onclick="openRouteSearchModal()" class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5 cursor-pointer" href="javascript:void(0)">
+      <span class="material-symbols-outlined text-secondary shrink-0">search</span><span class="rail-label whitespace-nowrap">Search Route</span></a></li>
+    <li><a onclick="switchTab('recs')" class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5 cursor-pointer" href="javascript:void(0)">
+      <span class="material-symbols-outlined shrink-0">psychology</span><span class="rail-label whitespace-nowrap">AI Optimization</span></a></li>
+    <li><a onclick="switchTab('fleet')" class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5 cursor-pointer" href="javascript:void(0)">
+      <span class="material-symbols-outlined shrink-0">radar</span><span class="rail-label whitespace-nowrap">Fleet Telemetry</span></a></li>
+    <li><a onclick="refreshOSINT()" class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5 cursor-pointer" href="javascript:void(0)">
+      <span class="material-symbols-outlined text-error shrink-0">sensors</span><span class="rail-label whitespace-nowrap">OSINT Radar Scan</span></a></li>
   </ul>
   <ul class="flex flex-col gap-1 px-3 mt-auto border-t border-outline-variant pt-3 shrink-0">
-    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5" href="#">
-      <span class="material-symbols-outlined shrink-0">support_agent</span><span class="rail-label whitespace-nowrap">Support</span></a></li>
-    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2.5" href="#">
-      <span class="material-symbols-outlined shrink-0">logout</span><span class="rail-label whitespace-nowrap">Logout</span></a></li>
+    <li><a class="hover:bg-surface-variant transition-colors rounded-lg flex items-center gap-3 px-3 py-2 text-[12px]" href="https://nammabmtcapp.karnataka.gov.in/commuter/search-by-route" target="_blank">
+      <span class="material-symbols-outlined text-[18px] shrink-0">open_in_new</span><span class="rail-label whitespace-nowrap">Namma BMTC Portal</span></a></li>
   </ul>
 </nav>
 
+<!-- ── Main Screen ──────────────────────────────────────────────────────────── -->
 <main class="flex-1 flex flex-col md:ml-16 h-screen w-full relative">
 
-  <header class="bg-surface/95 backdrop-blur-sm flex justify-between items-center w-full px-4 h-14 z-50 shrink-0 border-b border-outline-variant absolute top-0 left-0 right-0">
-    <div class="flex items-center gap-3 min-w-0">
-      <span class="font-semibold text-on-surface truncate">Control Room</span>
+  <!-- Header with Real-Time BMTC Search-by-Route Bar -->
+  <header class="bg-surface/95 backdrop-blur-md flex flex-wrap justify-between items-center w-full px-4 h-16 z-50 shrink-0 border-b border-outline-variant absolute top-0 left-0 right-0 shadow-sm">
+    
+    <!-- Brand & Connection Badge -->
+    <div class="flex items-center gap-2 min-w-0 mr-2">
+      <span class="font-bold text-on-surface text-[15px] hidden sm:inline truncate">BMTC Dispatch Engine</span>
       <span id="conf-badge" class="px-2.5 py-1 bg-secondary-fixed text-on-secondary-fixed-variant text-[11px] font-semibold rounded-full flex items-center gap-1.5 border border-secondary-fixed-dim whitespace-nowrap">
-        <span class="w-1.5 h-1.5 rounded-full bg-secondary-container live-dot"></span>
-        <span id="conf-badge-text">Connecting…</span>
+        <span class="w-2 h-2 rounded-full bg-secondary-container live-dot"></span>
+        <span id="conf-badge-text">Telemetry Connected</span>
       </span>
     </div>
-    <div class="flex items-center gap-1 shrink-0">
-      <button id="simulate-btn" class="hidden sm:flex items-center gap-1.5 bg-primary text-on-primary text-xs font-semibold px-3 py-1.5 rounded-lg hover:opacity-90 transition-opacity mr-1">
-        <span class="material-symbols-outlined text-[16px]">bolt</span> Run optimization
+
+    <!-- ── Interactive BMTC Route Search Input (Namma BMTC App Style) ────── -->
+    <div class="relative flex-1 max-w-md mx-2 min-w-[200px]">
+      <div class="relative flex items-center">
+        <span class="material-symbols-outlined absolute left-3 text-secondary text-[20px] pointer-events-none">search</span>
+        <input id="route-search-input" type="text" placeholder="Search any bus route (e.g. 500-D, 335-E, KIA-8, 501BH, 10)…"
+          autocomplete="off"
+          class="w-full pl-10 pr-16 py-2 bg-surface-container border border-outline-variant rounded-full text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-secondary-container focus:bg-surface text-on-surface shadow-inner"/>
+        <button id="clear-search-btn" onclick="clearSearch()" class="absolute right-9 text-on-surface-variant hover:text-on-surface hidden p-1">
+          <span class="material-symbols-outlined text-[16px]">close</span>
+        </button>
+        <span class="material-symbols-outlined absolute right-3 text-on-surface-variant text-[18px] pointer-events-none">directions_bus</span>
+      </div>
+
+      <!-- Autocomplete Dropdown -->
+      <div id="search-autocomplete" class="hidden absolute top-11 left-0 right-0 glass-panel border border-outline-variant rounded-xl shadow-2xl overflow-hidden z-50 max-h-72 overflow-y-auto">
+        <div class="p-2 border-b border-outline-variant bg-surface-container/50 text-[11px] font-semibold text-on-surface-variant flex justify-between items-center">
+          <span>BMTC Verified Corridors</span>
+          <span id="search-result-count" class="text-[10px] text-secondary">0 routes</span>
+        </div>
+        <div id="autocomplete-items" class="flex flex-col divide-y divide-outline-variant/40"></div>
+      </div>
+    </div>
+
+    <!-- Right Controls -->
+    <div class="flex items-center gap-2 shrink-0">
+      <button onclick="refreshOSINT()" title="Trigger Real-Time OSINT Scan" class="flex items-center gap-1.5 bg-surface-container text-on-surface hover:bg-surface-variant text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-outline-variant transition-colors shadow-sm">
+        <span id="radar-scan-icon" class="material-symbols-outlined text-[16px] text-error">radar</span>
+        <span class="hidden md:inline">Scan OSINT Radar</span>
       </button>
-      <button class="text-on-surface-variant hover:bg-surface-container-high transition-colors p-2 rounded-full"><span class="material-symbols-outlined text-[20px]">notifications</span></button>
+      <button id="optimize-btn" class="flex items-center gap-1.5 bg-primary text-on-primary text-xs font-semibold px-3 py-1.5 rounded-lg hover:opacity-90 transition-opacity shadow-sm">
+        <span class="material-symbols-outlined text-[16px]">bolt</span> <span class="hidden sm:inline">Optimize Dispatch</span>
+      </button>
     </div>
   </header>
 
-  <div class="flex-1 relative pt-14 overflow-hidden">
+  <!-- WorldMonitor Breaking News & OSINT Live Ticker -->
+  <div id="news-ticker" class="absolute top-16 left-0 right-0 z-30 glass-dark border-b border-outline-variant/30 overflow-hidden h-7 flex items-center">
+    <div class="flex items-center gap-1 bg-red-600/90 text-white font-mono text-[10px] uppercase font-bold px-2.5 h-full shrink-0 tracking-wider">
+      <span class="w-1.5 h-1.5 rounded-full bg-white live-dot"></span> OSINT RADAR
+    </div>
+    <div class="overflow-hidden flex-1 mx-2">
+      <span id="news-ticker-inner" class="text-gray-200 text-[11px] font-mono"></span>
+    </div>
+  </div>
 
+  <!-- Map Wrapper -->
+  <div id="map-wrapper" class="flex-1 relative pt-23 overflow-hidden">
+
+    <!-- Leaflet OpenStreetMap -->
     <div id="map" class="absolute inset-0 top-0"></div>
 
-    <aside id="events-panel" class="absolute top-3 left-3 bottom-3 w-[272px] max-w-[80vw] min-w-0 bg-surface/92 backdrop-blur-md border border-outline-variant rounded-2xl flex flex-col overflow-hidden shadow-xl z-20 transition-transform duration-200 box-border">
-      <button id="events-toggle" class="absolute -right-3 top-4 bg-surface border border-outline-variant rounded-full w-6 h-6 flex items-center justify-center shadow z-10">
+    <!-- ── LEFT: WorldMonitor-Style Live Intelligence Radar ──────────────── -->
+    <aside id="events-panel" class="absolute top-4 left-4 bottom-14 w-[310px] max-w-[85vw] min-w-0 glass-panel border border-outline-variant rounded-2xl flex flex-col overflow-hidden shadow-2xl z-20 transition-transform duration-200 box-border">
+      <button id="events-toggle" class="absolute -right-3 top-4 bg-surface border border-outline-variant rounded-full w-6 h-6 flex items-center justify-center shadow z-10 hover:bg-surface-variant">
         <span class="material-symbols-outlined text-[14px]">chevron_left</span>
       </button>
-      <div class="p-3 border-b border-outline-variant flex items-center gap-2 shrink-0">
-        <span class="material-symbols-outlined text-secondary-container text-[20px]">language</span>
-        <h2 class="font-semibold text-on-surface text-[15px]">Event Monitor</h2>
+
+      <!-- Panel Header -->
+      <div class="p-3 border-b border-outline-variant shrink-0 bg-surface/70">
+        <div class="flex items-center justify-between mb-1.5">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-error text-[20px]">sensors</span>
+            <h2 class="font-bold text-on-surface text-[14px]">WorldMonitor OSINT</h2>
+          </div>
+          <span id="panel-event-count" class="bg-error text-on-error text-[10px] font-bold px-2 py-0.5 rounded-full">0 signals</span>
+        </div>
+        <div class="text-[11px] text-on-surface-variant flex items-center gap-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> News RSS · Reddit · BTP Police · IMD Radar
+        </div>
+        <!-- Source health row -->
+        <div id="source-health" class="flex flex-wrap gap-1 mt-2"></div>
       </div>
-      <div id="events-list" class="p-3 flex flex-col gap-2 overflow-y-auto overflow-x-hidden min-w-0"></div>
+
+      <!-- WorldMonitor Channel Filter Chips -->
+      <div class="flex gap-1 px-3 pt-2 pb-1.5 overflow-x-auto shrink-0 border-b border-outline-variant bg-surface/40">
+        <button onclick="filterEvents('all')" id="filter-all" class="filter-chip bg-secondary-container text-on-secondary-container text-[10px] font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap shadow-sm">All</button>
+        <button onclick="filterEvents('traffic')" id="filter-traffic" class="filter-chip bg-surface-container text-on-surface-variant text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap">🚨 Traffic</button>
+        <button onclick="filterEvents('weather')" id="filter-weather" class="filter-chip bg-surface-container text-on-surface-variant text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap">🌧️ Weather</button>
+        <button onclick="filterEvents('social')" id="filter-social" class="filter-chip bg-surface-container text-on-surface-variant text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap">💬 Social/BTP</button>
+        <button onclick="filterEvents('sports')" id="filter-sports" class="filter-chip bg-surface-container text-on-surface-variant text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap">🏏 Events</button>
+        <button onclick="filterEvents('college')" id="filter-college" class="filter-chip bg-surface-container text-on-surface-variant text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap">🎓 Campus</button>
+      </div>
+
+      <!-- Events List -->
+      <div id="events-list" class="p-2.5 flex flex-col gap-2 overflow-y-auto overflow-x-hidden min-w-0 flex-1"></div>
+
+      <!-- Last scrape footer -->
+      <div class="px-3 py-1.5 border-t border-outline-variant shrink-0 flex items-center justify-between text-[10px] text-on-surface-variant bg-surface/80">
+        <span id="last-scrape-text" class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">update</span> Active monitoring</span>
+        <button onclick="refreshOSINT()" class="text-secondary font-semibold hover:underline">Scan Now</button>
+      </div>
     </aside>
 
-    <aside id="right-panel" class="absolute top-3 right-3 bottom-3 w-[300px] max-w-[85vw] min-w-0 bg-surface/92 backdrop-blur-md border border-outline-variant rounded-2xl flex flex-col overflow-hidden shadow-xl z-20 transition-transform duration-200 box-border">
-      <button id="right-toggle" class="absolute -left-3 top-4 bg-surface border border-outline-variant rounded-full w-6 h-6 flex items-center justify-center shadow z-10">
+    <!-- ── CENTER/FLOATING: Selected Active Route Inspector (Namma BMTC Card) ── -->
+    <div id="selected-route-card" class="hidden absolute top-4 left-1/2 -translate-x-1/2 w-[380px] max-w-[90vw] glass-panel border border-secondary-container/40 rounded-2xl p-3 shadow-2xl z-20 flex flex-col gap-2.5">
+      <div class="flex justify-between items-start">
+        <div class="flex items-center gap-2">
+          <span id="sr-badge" class="px-2.5 py-1 bg-secondary-container text-white font-mono font-bold text-xs rounded-lg shadow-sm">500-D</span>
+          <div>
+            <div id="sr-title" class="font-bold text-on-surface text-[13px] leading-tight truncate max-w-[200px]">Hebbal ↔ Silk Board</div>
+            <div id="sr-corridor" class="text-[10px] text-secondary font-semibold">Outer Ring Road Express</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-1">
+          <button onclick="toggleDirection()" title="Swap Direction (UP/DOWN)" class="p-1.5 bg-surface-container hover:bg-surface-variant text-secondary rounded-lg border border-outline-variant flex items-center justify-center">
+            <span class="material-symbols-outlined text-[18px]">swap_horiz</span>
+          </button>
+          <button onclick="closeRouteCard()" class="p-1 text-on-surface-variant hover:text-on-surface">
+            <span class="material-symbols-outlined text-[18px]">close</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Metrics Row -->
+      <div class="grid grid-cols-4 gap-1.5 text-center bg-surface-container/60 p-2 rounded-xl border border-outline-variant/40 text-[11px]">
+        <div><div class="text-[9px] uppercase text-on-surface-variant font-semibold">Distance</div><div id="sr-dist" class="font-mono font-bold">28.4 km</div></div>
+        <div><div class="text-[9px] uppercase text-on-surface-variant font-semibold">Est. Time</div><div id="sr-time" class="font-mono font-bold">75 min</div></div>
+        <div><div class="text-[9px] uppercase text-on-surface-variant font-semibold">Fleet</div><div id="sr-fleet" class="font-mono font-bold text-secondary">18 buses</div></div>
+        <div><div class="text-[9px] uppercase text-on-surface-variant font-semibold">OSINT Mult</div><div id="sr-mult" class="font-mono font-bold text-error">1.35×</div></div>
+      </div>
+
+      <!-- Direction & Stops Toggle Accordion -->
+      <div class="flex justify-between items-center text-xs">
+        <span id="sr-direction-label" class="font-semibold text-on-surface flex items-center gap-1">
+          <span class="material-symbols-outlined text-[14px] text-secondary">arrow_forward</span> UP: Hebbal → Silk Board
+        </span>
+        <button id="toggle-stops-btn" onclick="toggleStopsView()" class="text-secondary text-[11px] font-semibold hover:underline">View Stops (13)</button>
+      </div>
+
+      <!-- Collapsible Stops Timeline -->
+      <div id="sr-stops-list" class="hidden max-h-48 overflow-y-auto flex flex-col gap-1 pr-1 border-t border-outline-variant/40 pt-2"></div>
+
+      <!-- Route-specific ML Recommendation pill -->
+      <div id="sr-opt-summary" class="bg-secondary-container/10 border border-secondary-container/30 rounded-xl p-2 flex items-center justify-between text-xs">
+        <div>
+          <div class="font-bold text-secondary text-[11.5px]" id="sr-opt-action">Optimal Fleet: 18 Buses</div>
+          <div class="text-[10.5px] text-on-surface-variant" id="sr-opt-headway">Recommended Headway: 5 min</div>
+        </div>
+        <button onclick="runOptimizationForRoute()" class="bg-secondary-container text-white text-[11px] font-bold px-2.5 py-1 rounded-lg hover:opacity-90 shadow-sm">Recalculate</button>
+      </div>
+    </div>
+
+    <!-- ── RIGHT: Optimization Recommendations + Live Fleet Telemetry ────── -->
+    <aside id="right-panel" class="absolute top-4 right-4 bottom-14 w-[320px] max-w-[85vw] min-w-0 glass-panel border border-outline-variant rounded-2xl flex flex-col overflow-hidden shadow-2xl z-20 transition-transform duration-200 box-border">
+      <button id="right-toggle" class="absolute -left-3 top-4 bg-surface border border-outline-variant rounded-full w-6 h-6 flex items-center justify-center shadow z-10 hover:bg-surface-variant">
         <span class="material-symbols-outlined text-[14px]">chevron_right</span>
       </button>
-      <div class="flex border-b border-outline-variant shrink-0">
+
+      <!-- Tabs Header -->
+      <div class="flex border-b border-outline-variant shrink-0 bg-surface/70">
         <button data-tab="recs" class="tab-btn flex-1 py-2.5 text-[13px] font-semibold border-b-2 border-secondary-container text-secondary-container flex items-center justify-center gap-1.5">
-          <span class="material-symbols-outlined text-[16px]">psychology</span> Recommendations
+          <span class="material-symbols-outlined text-[16px]">psychology</span> Optimization
         </button>
         <button data-tab="fleet" class="tab-btn flex-1 py-2.5 text-[13px] font-semibold border-b-2 border-transparent text-on-surface-variant flex items-center justify-center gap-1.5">
-          <span class="material-symbols-outlined text-[16px]">directions_bus</span> Fleet
+          <span class="material-symbols-outlined text-[16px]">directions_bus</span> Live Fleet
         </button>
       </div>
-      <div id="tab-recs" class="tab-panel p-3 flex flex-col gap-3 overflow-y-auto overflow-x-hidden flex-1 min-w-0"></div>
+
+      <!-- Tab Content Panels -->
+      <div id="tab-recs" class="tab-panel p-3 flex flex-col gap-2.5 overflow-y-auto overflow-x-hidden flex-1 min-w-0"></div>
       <div id="tab-fleet" class="tab-panel p-3 flex flex-col gap-2 overflow-y-auto overflow-x-hidden flex-1 min-w-0 hidden"></div>
     </aside>
 
   </div>
 
+  <!-- Footer Stats Bar -->
   <footer class="absolute bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-md border-t border-outline-variant px-4 py-2 shrink-0 flex items-center justify-between z-30 gap-3 shadow-[0_-2px_6px_-1px_rgba(0,0,0,0.05)]">
     <div class="flex items-center gap-4 overflow-x-auto">
       <div class="flex items-center gap-2 whitespace-nowrap">
-        <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">Unserved demand</span>
+        <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">Fleet Deficit / Surplus</span>
         <span id="stat-unserved" class="font-bold text-on-surface">—</span>
       </div>
       <div class="w-px h-5 bg-outline-variant"></div>
       <div class="flex items-center gap-2 whitespace-nowrap">
-        <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">Fleet in motion</span>
-        <span id="stat-fleet" class="font-bold text-on-surface">—</span>
+        <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">Active Vehicles</span>
+        <span id="stat-fleet" class="font-bold text-secondary font-mono">—</span>
       </div>
       <div class="w-px h-5 bg-outline-variant"></div>
       <div class="flex items-center gap-2 whitespace-nowrap">
-        <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">Predicted overcrowding</span>
-        <span id="stat-overcrowd" class="font-bold text-on-surface">—</span>
+        <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">High Crowding Stops</span>
+        <span id="stat-overcrowd" class="font-bold text-error font-mono">—</span>
+      </div>
+      <div class="w-px h-5 bg-outline-variant"></div>
+      <div class="flex items-center gap-2 whitespace-nowrap">
+        <span class="text-on-surface-variant text-[10px] uppercase tracking-wide">OSINT Signals</span>
+        <span id="stat-events" class="font-bold text-error font-mono">—</span>
       </div>
     </div>
-    <div class="relative shrink-0">
+    <div class="relative shrink-0 flex items-center gap-2">
+      <span class="text-[11px] text-on-surface-variant hidden md:inline">Namma BMTC Search + OSINT Radar v6.0</span>
       <button id="legend-btn" class="text-on-surface-variant hover:bg-surface-container-high p-1.5 rounded-full flex items-center gap-1 text-[11px]">
         <span class="material-symbols-outlined text-[18px]">info</span>
       </button>
-      <div id="legend-pop" class="hidden absolute bottom-9 right-0 bg-surface border border-outline-variant rounded-lg p-3 shadow-lg w-48 flex flex-col gap-1.5 text-[12px]">
-        <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm bg-secondary-container inline-block"></span> High confidence (&gt;85%)</div>
-        <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm bg-tertiary-fixed-dim inline-block"></span> Medium (60–84%)</div>
-        <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm bg-outline-variant inline-block"></span> Low / fallback (&lt;60%)</div>
+      <div id="legend-pop" class="hidden absolute bottom-9 right-0 glass-panel border border-outline-variant rounded-xl p-3 shadow-2xl w-60 flex flex-col gap-1.5 text-[12px] z-50">
+        <div class="font-bold text-on-surface text-[12px] mb-1">Transit Intelligence Legend</div>
+        <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-secondary-container inline-block"></span> High Confidence &gt;85%</div>
+        <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-tertiary-fixed-dim inline-block"></span> Moderate Surge 60–84%</div>
+        <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-error inline-block"></span> Critical Surge (Severe Weather/Traffic)</div>
+        <hr class="border-outline-variant my-1"/>
+        <div class="text-on-surface-variant text-[10.5px]">Sources: Namma BMTC App, BTP Bengaluru Traffic Police, Reddit r/bangalore, TOI, Deccan Herald, Inshorts, IMD Weather Radar.</div>
       </div>
     </div>
   </footer>
 </main>
 
 <script>
-/* ---------------------------------------------------------------------
- * State
- * ------------------------------------------------------------------- */
+/* =============================================================================
+ * State Management
+ * ========================================================================== */
 let ROUTES_TO_CHECK = [];
 let EVENTS = [];
+let ACTIVE_FILTER = "all";
+let CURRENT_SEARCH_ROUTE = null;
+let CURRENT_DIRECTION = "UP";
 let ws = null;
 let wsRetryDelay = 1000;
+let searchDebounceTimer = null;
 
-/* ---------------------------------------------------------------------
- * Map
- * ------------------------------------------------------------------- */
+/* =============================================================================
+ * OpenStreetMap & Marker Layer Setup
+ * ========================================================================== */
 const map = L.map("map", { zoomControl: false }).setView([12.9716, 77.5946], 12);
 L.control.zoom({ position: "bottomleft" }).addTo(map);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  attribution: "&copy; OpenStreetMap contributors",
+
+// Premium CartoDB Dark / Voyager tile layer
+L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+  attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap',
   maxZoom: 19,
 }).addTo(map);
 
 const busIcon = (status) => L.divIcon({
   className: "",
-  html: `<div style="background:${status === "delayed" ? "#ba1a1a" : "#2170e4"};color:#fff;border-radius:999px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.3);border:2px solid white;">
-           <span class="material-symbols-outlined icon-fill" style="font-size:16px;">directions_bus</span>
+  html: `<div style="background:${status === "delayed" ? "#ba1a1a" : "#0058be"};color:#fff;border-radius:999px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(0,0,0,.4);border:2px solid white;">
+           <span class="material-symbols-outlined icon-fill" style="font-size:15px;">directions_bus</span>
          </div>`,
-  iconSize: [30, 30],
-  iconAnchor: [15, 15],
+  iconSize: [28, 28], iconAnchor: [14, 14],
 });
 
-const routeColors = {
-  "335-E": "#2170e4", "500-C": "#ba1a1a", "501BH": "#00a368",
-  "1": "#f57c00", "10": "#7c4dff", "12": "#009688"
+const stopIcon = (crowd) => {
+  const color = crowd > 70 ? "#ba1a1a" : crowd > 40 ? "#b87500" : "#0058be";
+  return L.divIcon({
+    className: "",
+    html: `<div style="background:${color};color:#fff;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,.3);font-size:9px;font-weight:bold;">●</div>`,
+    iconSize: [18, 18], iconAnchor: [9, 9],
+  });
 };
 
-let routePolylines = {};
-let busMarkers = {};
+const eventPinIcon = (ev) => {
+  const isHigh = ev.severity === 3;
+  const bg = isHigh ? "#ba1a1a" : "#b87500";
+  return L.divIcon({
+    className: "",
+    html: `<div style="background:${bg};color:#fff;border-radius:999px;padding:4px 8px;display:flex;align-items:center;gap:3px;box-shadow:0 4px 12px rgba(0,0,0,.4);border:2px solid white;font-size:11px;font-weight:bold;white-space:nowrap;">
+             <span class="material-symbols-outlined" style="font-size:14px;">${ev.icon || "warning"}</span>
+             <span>${ev.category}</span>
+           </div>`,
+    iconSize: [80, 26], iconAnchor: [40, 13],
+  });
+};
+
+const routeColors = {
+  "500-D": "#2170e4", "501BH": "#00a368", "335-E": "#7c4dff",
+  "KIA-8": "#e11d48", "KIA-9": "#ea580c", "500-C": "#d97706",
+  "365": "#0284c7", "201": "#059669", "1": "#f57c00",
+  "10": "#8b5cf6", "12": "#009688"
+};
+
+let routePolylines = {}, busMarkers = {}, stopMarkers = {}, eventMarkers = [];
 
 function drawRouteLines() {
   for (const route of ROUTES_TO_CHECK) {
     if (routePolylines[route.route_id]) map.removeLayer(routePolylines[route.route_id]);
     const stops = route.stops || [];
     if (stops.length > 1) {
-      const latlngs = stops.map(s => [s.lat, s.lon]);
-      const color = routeColors[route.route_id] || "#666";
-      routePolylines[route.route_id] = L.polyline(latlngs, { color, weight: 3, opacity: 0.6, dashArray: "5, 5" })
-        .addTo(map)
-        .bindPopup(`<b>${route.route_id}</b> — ${route.corridor_name}<br>${latlngs.length} stops`);
+      const ll    = stops.map(s => [s.lat, s.lon]);
+      const color = routeColors[route.route_id] || "#2170e4";
+      const mult  = route.event_multiplier || 1;
+      routePolylines[route.route_id] = L.polyline(ll, {
+        color, weight: mult > 1.2 ? 5 : 3.5, opacity: 0.8,
+        dashArray: mult > 1.5 ? null : "4,4"
+      }).addTo(map)
+        .bindPopup(`<b>Route ${route.route_id}</b><br>${route.corridor_name}<br>OSINT Surge: ${mult.toFixed(2)}x<br><button onclick="searchAndSelectRoute('${route.route_id}')" style="margin-top:6px;background:#0058be;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;">Inspect Route</button>`);
     }
   }
 }
@@ -228,7 +422,7 @@ function updateBusMarkers(buses) {
   const seen = new Set();
   for (const bus of buses) {
     seen.add(bus.bus_id);
-    const label = `${bus.route} · ${bus.status === "delayed" ? `+${bus.delay_min}m late` : "On time"} · ${bus.speed} km/h`;
+    const label = `<b>${bus.route_id} · ${bus.bus_id}</b><br>${bus.status === "delayed" ? `<span style="color:#ba1a1a;font-weight:bold;">+${bus.delay_min}m delayed</span>` : "<span style=\"color:#00a368;\">On Time</span>"}<br>Speed: ${bus.speed_kmh} km/h · Occupancy: ${bus.passenger_occupancy}/45 pax`;
     if (busMarkers[bus.bus_id]) {
       busMarkers[bus.bus_id].setLatLng([bus.lat, bus.lon]);
       busMarkers[bus.bus_id].setIcon(busIcon(bus.status));
@@ -240,20 +434,40 @@ function updateBusMarkers(buses) {
   for (const id of Object.keys(busMarkers)) {
     if (!seen.has(id)) { map.removeLayer(busMarkers[id]); delete busMarkers[id]; }
   }
-  document.getElementById("stat-fleet").textContent = `${buses.length} buses`;
+  document.getElementById("stat-fleet").textContent = `${buses.length} vehicles`;
 }
 
-/* ---------------------------------------------------------------------
- * WebSocket live bus feed — falls back to polling if the socket drops
- * ------------------------------------------------------------------- */
+function updateEventMapPins(events) {
+  eventMarkers.forEach(m => map.removeLayer(m));
+  eventMarkers = [];
+
+  for (const ev of events) {
+    if (ev.lat && ev.lon) {
+      const popupContent = `
+        <div style="font-size:12px;line-height:1.4;">
+          <div style="font-weight:bold;color:${ev.severity===3 ? '#ba1a1a' : '#b87500'};">${ev.impact}: ${ev.category.toUpperCase()}</div>
+          <div style="font-weight:600;margin:3px 0;">${ev.title}</div>
+          <div style="color:#666;">Location: ${ev.place}</div>
+          <div style="margin-top:4px;"><b>Affected Routes:</b> ${ev.affected_routes.map(r => `<span style="background:#e0e7ff;color:#3730a3;padding:1px 4px;border-radius:3px;font-size:10px;">${r}</span>`).join(' ')}</div>
+          ${ev.link ? `<div style="margin-top:4px;"><a href="${ev.link}" target="_blank" style="color:#2170e4;text-decoration:underline;">Source Link</a></div>` : ''}
+        </div>`;
+      const m = L.marker([ev.lat, ev.lon], { icon: eventPinIcon(ev) }).addTo(map).bindPopup(popupContent);
+      eventMarkers.push(m);
+    }
+  }
+}
+
+/* =============================================================================
+ * Real-Time WebSocket Telemetry
+ * ========================================================================== */
 function connectLiveFeed() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws/live`);
-
-  ws.onopen = () => { wsRetryDelay = 1000; setBackendStatus(true); };
+  ws.onopen  = () => { wsRetryDelay = 1000; setBackendStatus(true); };
   ws.onmessage = (evt) => {
     const data = JSON.parse(evt.data);
-    updateBusMarkers(data.sample_active_buses || []);
+    const fleet = data.active_buses || data.sample_active_buses || [];
+    updateBusMarkers(fleet);
   };
   ws.onclose = () => {
     setBackendStatus(false);
@@ -264,110 +478,442 @@ function connectLiveFeed() {
 }
 
 function setBackendStatus(ok) {
-  const badge = document.getElementById("conf-badge-text");
-  badge.textContent = ok ? "Live Optimization (connected)" : "Reconnecting to backend…";
-  document.getElementById("conf-badge").classList.toggle("bg-error-container", !ok);
-  document.getElementById("conf-badge").classList.toggle("bg-secondary-fixed", ok);
+  const text  = document.getElementById("conf-badge-text");
+  const badge = document.getElementById("conf-badge");
+  text.textContent = ok ? "Telemetry Connected" : "Reconnecting…";
+  badge.classList.toggle("bg-error-container", !ok);
+  badge.classList.toggle("bg-secondary-fixed", ok);
 }
 
-/* ---------------------------------------------------------------------
- * Route summary + events (slower refresh — these are the "planning" data)
- * ------------------------------------------------------------------- */
+/* =============================================================================
+ * BMTC Search-by-Route (Namma BMTC App Style)
+ * ========================================================================== */
+const searchInput = document.getElementById("route-search-input");
+const autocompleteBox = document.getElementById("search-autocomplete");
+const autocompleteItems = document.getElementById("autocomplete-items");
+const clearSearchBtn = document.getElementById("clear-search-btn");
+
+searchInput.addEventListener("input", (e) => {
+  const val = e.target.value.trim();
+  clearSearchBtn.classList.toggle("hidden", !val);
+  clearTimeout(searchDebounceTimer);
+  if (val.length >= 1) {
+    searchDebounceTimer = setTimeout(() => fetchRouteSuggestions(val), 200);
+  } else {
+    autocompleteBox.classList.add("hidden");
+  }
+});
+
+searchInput.addEventListener("focus", () => {
+  const val = searchInput.value.trim();
+  if (val.length >= 1) fetchRouteSuggestions(val);
+  else fetchRouteSuggestions("");
+});
+
+async function fetchRouteSuggestions(query) {
+  try {
+    const res = await fetch(`/api/bmtc/search-route?query=${encodeURIComponent(query || "500")}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const list = data.data || [];
+    document.getElementById("search-result-count").textContent = `${list.length} routes found`;
+
+    if (!list.length) {
+      autocompleteItems.innerHTML = `<div class="p-3 text-center text-on-surface-variant text-[11px]">No matching routes found.</div>`;
+      autocompleteBox.classList.remove("hidden");
+      return;
+    }
+
+    autocompleteItems.innerHTML = list.map(r => `
+      <div onclick="searchAndSelectRoute('${r.route_id}')" class="p-2.5 hover:bg-secondary-container/10 cursor-pointer flex items-center justify-between transition-colors">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="px-2 py-0.5 bg-secondary-container text-white font-mono font-bold text-[11px] rounded shrink-0">${r.route_id}</span>
+          <div class="min-w-0 truncate">
+            <div class="font-bold text-on-surface text-[12px] truncate">${r.origin} ↔ ${r.destination}</div>
+            <div class="text-[10px] text-on-surface-variant truncate">${r.corridor_name} · ${r.distance_km} km</div>
+          </div>
+        </div>
+        <div class="text-right shrink-0 ml-2">
+          <span class="text-[10px] font-mono font-bold ${r.event_multiplier > 1.1 ? 'text-error' : 'text-secondary'}">${r.event_multiplier.toFixed(2)}× mult</span>
+          <div class="text-[9px] text-on-surface-variant">${r.current_fleet_count} buses</div>
+        </div>
+      </div>`).join("");
+
+    autocompleteBox.classList.remove("hidden");
+  } catch (e) {
+    console.error("Search failed", e);
+  }
+}
+
+function clearSearch() {
+  searchInput.value = "";
+  clearSearchBtn.classList.add("hidden");
+  autocompleteBox.classList.add("hidden");
+}
+
+document.addEventListener("click", (e) => {
+  if (!autocompleteBox.contains(e.target) && e.target !== searchInput) {
+    autocompleteBox.classList.add("hidden");
+  }
+});
+
+async function searchAndSelectRoute(routeId, dir = "UP") {
+  autocompleteBox.classList.add("hidden");
+  searchInput.value = routeId;
+  clearSearchBtn.classList.remove("hidden");
+
+  try {
+    const res = await fetch(`/api/bmtc/route-details?route_id=${encodeURIComponent(routeId)}&direction=${dir}`);
+    if (!res.ok) throw new Error("Route not found");
+    const data = await res.json();
+    CURRENT_SEARCH_ROUTE = data;
+    CURRENT_DIRECTION = data.direction;
+
+    renderRouteInspector(data);
+    plotRouteOnMap(data);
+  } catch (e) {
+    alert("Error fetching route details: " + e.message);
+  }
+}
+
+function renderRouteInspector(data) {
+  const card = document.getElementById("selected-route-card");
+  card.classList.remove("hidden");
+
+  document.getElementById("sr-badge").textContent = data.route_id;
+  document.getElementById("sr-title").textContent = `${data.origin} ↔ ${data.destination}`;
+  document.getElementById("sr-corridor").textContent = data.corridor_name;
+  document.getElementById("sr-dist").textContent = `${data.distance_km} km`;
+  document.getElementById("sr-time").textContent = `${data.estimated_duration_min} min`;
+  document.getElementById("sr-fleet").textContent = `${data.current_fleet_count} buses`;
+  document.getElementById("sr-mult").textContent = `${data.event_multiplier.toFixed(2)}×`;
+
+  const isUp = data.direction === "UP";
+  document.getElementById("sr-direction-label").innerHTML = `
+    <span class="material-symbols-outlined text-[14px] text-secondary">arrow_forward</span> ${data.direction}: ${data.origin} → ${data.destination}`;
+
+  document.getElementById("toggle-stops-btn").textContent = `View Stops (${data.stops.length})`;
+
+  // Render stops timeline
+  const stopsEl = document.getElementById("sr-stops-list");
+  stopsEl.innerHTML = data.stops.map(s => `
+    <div class="flex items-center justify-between text-[11px] p-1.5 bg-surface-container/40 rounded-lg">
+      <div class="flex items-center gap-1.5 min-w-0">
+        <span class="w-4 h-4 rounded-full bg-secondary-container/20 text-secondary font-mono text-[9px] font-bold flex items-center justify-center shrink-0">${s.stop_sequence}</span>
+        <span class="font-semibold text-on-surface truncate">${s.stop_name}</span>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <div class="w-12 h-1.5 bg-surface-container-high rounded-full overflow-hidden">
+          <div class="h-full ${s.crowding_pct > 70 ? 'bg-error' : s.crowding_pct > 40 ? 'bg-on-tertiary-container' : 'bg-secondary-container'}" style="width:${s.crowding_pct}%"></div>
+        </div>
+        <span class="font-mono text-[10px] font-bold ${s.crowding_pct > 70 ? 'text-error' : 'text-on-surface'}">${s.current_waiting_passengers} pax</span>
+      </div>
+    </div>`).join("");
+
+  // Optimization summary
+  const opt = data.live_optimization;
+  if (opt) {
+    document.getElementById("sr-opt-action").textContent = `${opt.action}: ${opt.recommended_fleet} Buses`;
+    document.getElementById("sr-opt-headway").textContent = `Headway: ${opt.recommended_headway_min}m · Pax: ${Math.round(opt.predicted_pax_demand)}`;
+  }
+}
+
+function toggleDirection() {
+  if (!CURRENT_SEARCH_ROUTE) return;
+  const newDir = CURRENT_DIRECTION === "UP" ? "DOWN" : "UP";
+  searchAndSelectRoute(CURRENT_SEARCH_ROUTE.route_id, newDir);
+}
+
+function toggleStopsView() {
+  const el = document.getElementById("sr-stops-list");
+  el.classList.toggle("hidden");
+}
+
+function closeRouteCard() {
+  document.getElementById("selected-route-card").classList.add("hidden");
+  CURRENT_SEARCH_ROUTE = null;
+}
+
+function plotRouteOnMap(data) {
+  // Clear previous stop markers
+  Object.values(stopMarkers).forEach(m => map.removeLayer(m));
+  stopMarkers = {};
+
+  const stops = data.stops || [];
+  if (stops.length < 2) return;
+
+  const latlngs = stops.map(s => [s.lat, s.lon]);
+  
+  // Add/Update highlight polyline
+  if (routePolylines["_active_search_"]) map.removeLayer(routePolylines["_active_search_"]);
+  routePolylines["_active_search_"] = L.polyline(latlngs, {
+    color: "#2170e4", weight: 6, opacity: 0.95, lineCap: "round"
+  }).addTo(map);
+
+  // Add Stop Pins
+  stops.forEach(s => {
+    const marker = L.marker([s.lat, s.lon], { icon: stopIcon(s.crowding_pct) })
+      .addTo(map)
+      .bindPopup(`<b>Stop #${s.stop_sequence}: ${s.stop_name}</b><br>Waiting: <b>${s.current_waiting_passengers} pax</b><br>Available Capacity: ${s.bus_capacity_available} seats<br>Crowding Level: ${s.crowding_pct}%`);
+    stopMarkers[s.stop_id] = marker;
+  });
+
+  // Fit map to route bounds
+  const bounds = L.latLngBounds(latlngs);
+  map.fitBounds(bounds, { padding: [80, 80] });
+}
+
+function runOptimizationForRoute() {
+  runOptimization();
+}
+
+function openRouteSearchModal() {
+  searchInput.focus();
+}
+
+/* =============================================================================
+ * WorldMonitor OSINT News & Social Radar
+ * ========================================================================== */
+function renderSourceHealth(sourcesStatus) {
+  const el = document.getElementById("source-health");
+  if (!sourcesStatus || !Object.keys(sourcesStatus).length) return;
+  const srcClass = (name) => {
+    const n = name.toLowerCase();
+    if (n.includes("btp")) return "src-btp";
+    if (n.includes("reddit")) return "src-reddit";
+    if (n.includes("imd")) return "src-imd";
+    if (n.includes("times")) return "src-toi";
+    if (n.includes("hindu")) return "src-hindu";
+    if (n.includes("deccan")) return "src-dh";
+    if (n.includes("ndtv")) return "src-ndtv";
+    if (n.includes("mirror")) return "src-mirror";
+    if (n.includes("inshorts")) return "src-inshorts";
+    if (n.includes("pes")) return "src-pes";
+    return "src-default";
+  };
+  el.innerHTML = Object.entries(sourcesStatus).map(([name, ok]) => `
+    <span class="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded border ${srcClass(name)}">
+      <span class="w-1 h-1 rounded-full ${ok ? "bg-green-500" : "bg-red-400"}"></span>
+      ${name.split(/[\s–-]/)[0]}
+    </span>`).join("");
+}
+
+function updateTicker(events) {
+  if (!events.length) return;
+  const ticker = document.getElementById("news-ticker");
+  const inner  = document.getElementById("news-ticker-inner");
+  ticker.classList.remove("hidden");
+  inner.textContent = events.map(ev =>
+    `  ●  [${ev.category.toUpperCase()}] ${ev.title} (${ev.place} · Surge ${ev.impact})`
+  ).join("     ");
+}
+
+function sourceBadge(source) {
+  const n = (source || "").toLowerCase();
+  let cls = "src-default";
+  if (n.includes("btp")) cls = "src-btp";
+  else if (n.includes("reddit")) cls = "src-reddit";
+  else if (n.includes("imd")) cls = "src-imd";
+  else if (n.includes("times")) cls = "src-toi";
+  else if (n.includes("hindu")) cls = "src-hindu";
+  else if (n.includes("deccan")) cls = "src-dh";
+  else if (n.includes("ndtv")) cls = "src-ndtv";
+  else if (n.includes("mirror")) cls = "src-mirror";
+  else if (n.includes("inshorts")) cls = "src-inshorts";
+  else if (n.includes("pes")) cls = "src-pes";
+  return `<span class="text-[9px] font-semibold px-1.5 py-0.5 rounded border ${cls}">${source || "OSINT"}</span>`;
+}
+
+function routeChips(routes) {
+  if (!routes || !routes.length) return "";
+  return routes.slice(0, 4).map(r =>
+    `<button onclick="searchAndSelectRoute('${r}')" class="text-[9px] font-mono bg-secondary-container/20 text-secondary hover:bg-secondary-container hover:text-white px-1.5 py-0.5 rounded border border-secondary-container/30 transition-colors">${r}</button>`
+  ).join(" ");
+}
+
+function eventCard(ev) {
+  const isHigh = ev.severity === 3;
+  const isMed  = ev.severity === 2;
+  const conf   = Math.round((ev.confidence || 0) * 100);
+  const link   = ev.link ? `href="${ev.link}" target="_blank" rel="noopener"` : "";
+  return `
+    <div class="event-card w-full min-w-0 box-border bg-surface/90 border border-outline-variant rounded-xl shadow-sm relative overflow-hidden">
+      <div class="absolute top-0 left-0 w-1.5 h-full ${isHigh ? "bg-error" : isMed ? "bg-on-tertiary-container" : "bg-secondary-container"}"></div>
+      <div class="pl-3.5 pr-2.5 pt-2 pb-2">
+        <div class="flex justify-between items-start mb-1 gap-1">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span class="material-symbols-outlined text-[15px] ${isHigh ? "text-error" : isMed ? "text-on-tertiary-container" : "text-secondary-container"} shrink-0">${ev.icon}</span>
+            <span class="text-[10px] font-bold uppercase tracking-wide ${isHigh ? "text-error" : isMed ? "text-on-tertiary-container" : "text-on-surface"} truncate">${ev.category}</span>
+          </div>
+          <span class="text-[9.5px] font-mono ${isHigh && ev.tag === "LIVE" ? "bg-error text-on-error" : "bg-surface-container text-on-surface-variant"} px-1.5 py-0.2 rounded font-semibold shrink-0">${ev.tag}</span>
+        </div>
+        <a ${link} class="block text-[12px] font-bold text-on-surface mb-1 leading-snug ${link ? "hover:underline text-secondary" : ""}">${ev.title}</a>
+        <p class="text-[11px] text-on-surface-variant mb-1.5 leading-snug">${ev.place}${ev.description ? " · " + ev.description.slice(0,100) + "…" : ""}</p>
+        <div class="flex items-center gap-2 mb-1.5">
+          <div class="flex-1 h-1 bg-surface-container rounded-full overflow-hidden">
+            <div class="conf-bar h-full rounded-full ${conf > 84 ? "bg-secondary-container" : conf > 59 ? "bg-on-tertiary-container" : "bg-outline"}" style="width:${conf}%"></div>
+          </div>
+          <span class="text-[10px] font-mono text-on-surface-variant shrink-0">${conf}% conf</span>
+        </div>
+        <div class="flex items-center gap-1 flex-wrap">
+          ${sourceBadge(ev.source)}
+          ${routeChips(ev.affected_routes)}
+        </div>
+      </div>
+    </div>`;
+}
+
+function filterEvents(cat) {
+  ACTIVE_FILTER = cat;
+  document.querySelectorAll(".filter-chip").forEach(btn => {
+    const active = btn.id === `filter-${cat}`;
+    btn.className = `filter-chip ${active
+      ? "bg-secondary-container text-on-secondary-container font-bold shadow-sm"
+      : "bg-surface-container text-on-surface-variant"
+    } text-[10px] px-2.5 py-0.5 rounded-full whitespace-nowrap`;
+  });
+  renderEvents();
+}
+
+function renderEvents() {
+  const list = document.getElementById("events-list");
+  const filtered = ACTIVE_FILTER === "all"
+    ? EVENTS
+    : EVENTS.filter(ev => ev.category && ev.category.toLowerCase().replace(/\s+/g,"_").includes(ACTIVE_FILTER));
+  if (!filtered.length) {
+    list.innerHTML = `<div class="text-center text-on-surface-variant text-[12px] p-6 flex flex-col items-center gap-2">
+      <span class="material-symbols-outlined text-[32px] text-outline">radar</span>
+      No active OSINT signals for this filter.</div>`;
+    return;
+  }
+  list.innerHTML = filtered.map(eventCard).join("");
+}
+
+function updateEventCount() {
+  const count = EVENTS ? EVENTS.length : 0;
+  const pcnt  = document.getElementById("panel-event-count");
+  if (count > 0) {
+    pcnt.textContent = `${count} signals`;
+  }
+  document.getElementById("stat-events").textContent = count ? `${count} active` : "—";
+}
+
+async function refreshOSINT() {
+  const icon = document.getElementById("radar-scan-icon");
+  icon.classList.add("radar-sweep");
+  try {
+    const res = await fetch("/api/intelligence/refresh", { method: "POST" });
+    const data = await res.json();
+    await loadLiveData();
+    setTimeout(() => icon.classList.remove("radar-sweep"), 1500);
+  } catch (e) {
+    icon.classList.remove("radar-sweep");
+    console.error("OSINT Refresh error", e);
+  }
+}
+
+/* =============================================================================
+ * Live Data Fetcher
+ * ========================================================================== */
 async function loadLiveData() {
   try {
-    const [alertRes, routeRes] = await Promise.all([fetch("/api/alerts"), fetch("/api/route-summary")]);
-    if (!alertRes.ok || !routeRes.ok) throw new Error("live data fetch failed");
-    EVENTS = await alertRes.json();
+    const [alertRes, routeRes, statusRes] = await Promise.all([
+      fetch("/api/intelligence/radar"),
+      fetch("/api/route-summary"),
+      fetch("/api/status"),
+    ]);
+    if (!alertRes.ok || !routeRes.ok) throw new Error("API fetch failed");
+    
+    const radarData = await alertRes.json();
+    EVENTS          = radarData.events || [];
     ROUTES_TO_CHECK = await routeRes.json();
+    const status    = await statusRes.json();
+
     renderEvents();
     drawRouteLines();
+    updateEventCount();
+    updateTicker(EVENTS);
+    updateEventMapPins(EVENTS);
+    renderSourceHealth(status.sources_status || {});
+
+    const ls = status.last_scrape
+      ? new Date(status.last_scrape).toLocaleTimeString()
+      : "Active";
+    document.getElementById("last-scrape-text").textContent =
+      `Last scan: ${ls} · cycle #${status.scrape_cycles || 0}`;
   } catch (e) {
     console.warn("loadLiveData failed", e);
   }
 }
 
-function renderEvents() {
-  const list = document.getElementById("events-list");
-  list.innerHTML = EVENTS.map(ev => `
-    <div class="bg-surface/80 border border-outline-variant rounded-lg p-3 shadow-sm relative overflow-hidden">
-      <div class="absolute top-0 left-0 w-1 h-full bg-${ev.color}"></div>
-      <div class="flex justify-between items-start mb-1">
-        <span class="text-[11px] font-semibold text-${ev.color === "error" ? "error" : "on-surface"} flex items-center gap-1">
-          <span class="material-symbols-outlined text-[14px]">${ev.icon}</span> ${ev.category}
-        </span>
-        <span class="text-on-surface-variant font-mono text-[10px]">${ev.tag}</span>
-      </div>
-      <h3 class="text-[13px] font-semibold text-on-surface mb-0.5">${ev.title}</h3>
-      <p class="text-[12px] text-on-surface-variant mb-1.5">${ev.place}</p>
-      <div class="flex justify-between items-center text-[12px]">
-        <span class="text-on-surface-variant">Impact</span>
-        <span class="font-mono font-medium text-on-surface bg-surface-container-high px-1.5 py-0.5 rounded">${ev.impact}</span>
-      </div>
-    </div>`).join("");
-}
-
-/* ---------------------------------------------------------------------
- * Recommendations — calls to /api/optimize + /api/stops/{route}
- * ------------------------------------------------------------------- */
+/* =============================================================================
+ * Confidence Badge Helper
+ * ========================================================================== */
 function confidenceBadge(score) {
-  if (score > 0.85) return { icon: "check_circle", cls: "text-secondary-container border-secondary-fixed-dim" };
-  if (score >= 0.60) return { icon: "warning", cls: "text-on-tertiary-container border-tertiary-fixed" };
-  return { icon: "priority_high", cls: "text-error border-error-container" };
+  if (score > 0.85) return { icon:"check_circle", cls:"text-secondary-container border-secondary-fixed-dim" };
+  if (score >= 0.60) return { icon:"warning", cls:"text-on-tertiary-container border-tertiary-fixed" };
+  return { icon:"priority_high", cls:"text-error border-error-container" };
 }
 
+/* =============================================================================
+ * Optimization Recommendations Rendering
+ * ========================================================================== */
 function recCard(rec) {
   const badge = confidenceBadge(rec.confidence_score);
   const actionLabel = {
-    DEPLOY_EXTRA_BUS: "Deploy extra bus",
-    RELEASE_BUS_TO_POOL: "Hold next dispatch",
-    MAINTAIN_SCHEDULE: "Maintain schedule",
+    DEPLOY_EXTRA_BUS:    "Deploy Extra Bus",
+    RELEASE_BUS_TO_POOL:"Hold Next Dispatch",
+    MAINTAIN_SCHEDULE:  "Maintain Schedule",
   }[rec.action_type] || rec.action_type;
 
   return `
-    <div class="w-full min-w-0 box-border bg-surface/80 border border-outline-variant rounded-lg p-3 shadow-sm relative overflow-hidden">
-      <div class="absolute top-0 left-0 w-1 h-full bg-secondary-container"></div>
+    <div class="w-full min-w-0 box-border bg-surface/80 border border-outline-variant rounded-xl p-3 shadow-sm relative overflow-hidden">
+      <div class="absolute top-0 left-0 w-1.5 h-full ${rec.delta_buses > 0 ? 'bg-error' : 'bg-secondary-container'}"></div>
       <div class="flex justify-between items-start mb-2 gap-2">
-        <h3 class="text-[13px] font-semibold text-on-surface min-w-0 truncate">${actionLabel}: Route ${rec.route_id}</h3>
+        <h3 onclick="searchAndSelectRoute('${rec.route_id}')" class="text-[13px] font-bold text-on-surface hover:text-secondary cursor-pointer min-w-0 truncate">${actionLabel}: Route ${rec.route_id}</h3>
         <div class="border ${badge.cls} rounded px-1.5 py-0.5 flex items-center gap-1 shrink-0">
           <span class="material-symbols-outlined text-[13px]">${badge.icon}</span>
           <span class="font-mono text-[11px] font-bold">${Math.round(rec.confidence_score * 100)}%</span>
         </div>
       </div>
-      <div class="flex flex-col gap-1 mb-2 text-[12px]">
-        <div class="flex justify-between gap-2"><span class="text-on-surface-variant min-w-0 truncate">Fleet / headway</span><span class="font-mono shrink-0">${rec.recommended_fleet_allocation} buses · ${rec.recommended_frequency_minutes}m</span></div>
-        <div class="flex justify-between gap-2"><span class="text-on-surface-variant min-w-0 truncate">Demand (predicted)</span><span class="font-mono shrink-0">${Math.round(rec.predicted_passenger_demand)}</span></div>
-        <div class="flex justify-between gap-2"><span class="text-on-surface-variant min-w-0 truncate">Solver</span><span class="font-mono shrink-0">${rec.solver_used}</span></div>
+      <div class="flex flex-col gap-1 mb-2 text-[12px] bg-surface-container/40 p-2 rounded-lg">
+        <div class="flex justify-between gap-2"><span class="text-on-surface-variant truncate">Allocated Fleet / Headway</span><span class="font-mono shrink-0 font-bold">${rec.recommended_fleet_allocation} buses · ${rec.recommended_frequency_minutes}m</span></div>
+        <div class="flex justify-between gap-2"><span class="text-on-surface-variant truncate">Predicted Pax Load</span><span class="font-mono shrink-0 font-semibold">${Math.round(rec.predicted_passenger_demand)} pax</span></div>
+        <div class="flex justify-between gap-2"><span class="text-on-surface-variant truncate">Optimization Engine</span><span class="font-mono shrink-0 text-secondary">${rec.solver_used}</span></div>
       </div>
-      <p class="text-[11.5px] text-on-surface-variant mb-2 leading-snug break-words">${rec.reasoning}</p>
+      <p class="text-[11px] text-on-surface-variant mb-2 leading-snug break-words">${rec.reasoning}</p>
       <div class="flex gap-2">
-        <button class="flex-1 bg-secondary-container text-on-secondary-container text-[12px] font-semibold py-1.5 rounded hover:opacity-90">Approve</button>
-        <button class="flex-1 bg-surface-container text-on-surface text-[12px] font-semibold py-1.5 rounded border border-outline-variant hover:bg-surface-variant">Dismiss</button>
+        <button onclick="searchAndSelectRoute('${rec.route_id}')" class="flex-1 bg-secondary-container text-on-secondary-container text-[11px] font-bold py-1.5 rounded-lg hover:opacity-90 shadow-sm">Inspect Route</button>
+        <button class="flex-1 bg-surface-container text-on-surface text-[11px] font-semibold py-1.5 rounded-lg border border-outline-variant hover:bg-surface-variant">Approve</button>
       </div>
     </div>`;
 }
 
 function stopAlertCard(stop) {
   return `
-    <div class="w-full min-w-0 box-border bg-surface/80 border border-error-container rounded-lg p-3 shadow-sm relative overflow-hidden">
-      <div class="absolute top-0 left-0 w-1 h-full bg-error"></div>
-      <div class="flex justify-between items-start mb-2 gap-2">
-        <h3 class="text-[13px] font-semibold text-error min-w-0 truncate">Overcrowding: ${stop.stop_name}</h3>
-        <span class="font-mono text-[11px] text-error-container shrink-0">${Math.round(stop.crowding_pct)}%</span>
+    <div class="w-full min-w-0 box-border bg-surface/80 border border-error-container rounded-xl p-2.5 shadow-sm relative overflow-hidden">
+      <div class="absolute top-0 left-0 w-1.5 h-full bg-error"></div>
+      <div class="flex justify-between items-start mb-1 gap-2">
+        <h3 class="text-[12px] font-bold text-error min-w-0 truncate">Crowding: ${stop.stop_name}</h3>
+        <span class="font-mono text-[11px] text-error font-bold">${Math.round(stop.crowding_pct)}%</span>
       </div>
-      <p class="text-[12px] text-on-surface-variant">${stop.current_waiting_passengers} waiting, ${stop.bus_capacity_available} seats left on the next bus</p>
+      <p class="text-[11px] text-on-surface-variant">${stop.current_waiting_passengers} waiting, ${stop.bus_capacity_available} available seats</p>
     </div>`;
 }
 
+/* =============================================================================
+ * Dispatch Optimization Execution
+ * ========================================================================== */
 async function runOptimization() {
   const container = document.getElementById("tab-recs");
-  container.innerHTML = `<div class="text-on-surface-variant text-[12px] flex items-center gap-2 p-2"><span class="material-symbols-outlined animate-spin text-[16px]">progress_activity</span> Optimizing routes…</div>`;
+  container.innerHTML = `<div class="text-on-surface-variant text-[12px] flex items-center gap-2 p-3">
+    <span class="material-symbols-outlined animate-spin text-[18px] text-secondary">progress_activity</span> Computing OR-Tools & XGBoost schedules…</div>`;
 
   if (!ROUTES_TO_CHECK.length) await loadLiveData();
 
-  const now = new Date();
+  const now   = new Date();
   const cards = [];
-  let unserved = 0;
-  let overcrowdZones = 0;
+  let unserved = 0, overcrowdZones = 0;
 
   for (const route of ROUTES_TO_CHECK) {
     try {
@@ -375,98 +921,99 @@ async function runOptimization() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          route_id: route.route_id,
-          current_fleet_count: route.current_fleet_count,
-          average_speed_kmh: route.avg_speed_kmh ?? 14,
-          weather_condition: now.getHours() >= 17 ? 1 : 0,
-          hour_of_day: now.getHours(),
-          day_of_week: now.getDay(),
-          is_event_nearby: EVENTS.length > 0 ? 1 : 0,
+          route_id:            route.route_id,
+          current_fleet_count: route.current_fleet_count || 8,
+          average_speed_kmh:   route.avg_speed_kmh || 16,
+          weather_condition:   now.getHours() >= 17 ? 1 : 0,
+          hour_of_day:         now.getHours(),
+          day_of_week:         now.getDay(),
+          is_event_nearby:     EVENTS.length > 0 ? 1 : 0,
         }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) continue;
       const rec = await res.json();
       cards.push(recCard(rec));
       if (rec.delta_buses > 0) unserved += rec.delta_buses;
 
       const stopsRes = await fetch(`/api/stops/${route.route_id}`);
       if (stopsRes.ok) {
-        const stops = await stopsRes.json();
-        const critical = stops.filter(s => s.crowding_pct > 60).slice(0, 2);
+        const stops    = await stopsRes.json();
+        const critical = stops.filter(s => s.crowding_pct > 65).slice(0, 2);
         overcrowdZones += critical.length;
         critical.forEach(s => cards.push(stopAlertCard(s)));
       }
       setBackendStatus(true);
     } catch (e) {
-      setBackendStatus(false);
-      cards.push(`<div class="text-error text-[12px] p-2 border border-error-container rounded-lg">Couldn't reach /api/optimize for ${route.route_id}.</div>`);
+      console.error("Optimization failed", route.route_id, e);
     }
   }
 
-  container.innerHTML = cards.join("");
-  document.getElementById("stat-unserved").textContent = unserved;
-  document.getElementById("stat-overcrowd").textContent = `${overcrowdZones} zones`;
+  container.innerHTML = cards.length
+    ? cards.join("")
+    : `<div class="text-on-surface-variant text-[12px] p-4 text-center">No recommendations available.</div>`;
+  document.getElementById("stat-unserved").textContent  = unserved ? `+${unserved} needed` : "Optimal";
+  document.getElementById("stat-overcrowd").textContent = `${overcrowdZones} stops`;
 }
 
-/* ---------------------------------------------------------------------
- * Fleet tab
- * ------------------------------------------------------------------- */
+/* =============================================================================
+ * Fleet Telemetry Tab
+ * ========================================================================== */
 async function renderFleetTab() {
   const el = document.getElementById("tab-fleet");
   try {
-    const res = await fetch("/api/live-buses");
+    const res  = await fetch("/api/live-buses");
     const data = await res.json();
-    const buses = data.sample_active_buses || [];
+    const buses = data.active_buses || [];
     el.innerHTML = buses.map(b => `
-      <div class="w-full min-w-0 box-border flex items-center justify-between gap-2 border border-outline-variant rounded-lg px-3 py-2 text-[12px]">
+      <div onclick="searchAndSelectRoute('${b.route_id}')" class="w-full min-w-0 box-border flex items-center justify-between gap-2 border border-outline-variant rounded-xl px-3 py-2 text-[12px] hover:bg-surface-container/60 cursor-pointer transition-colors">
         <div class="min-w-0">
-          <div class="font-semibold truncate">${b.route}</div>
-          <div class="text-on-surface-variant font-mono text-[10px] truncate">${b.bus_id}</div>
+          <div class="font-bold text-on-surface truncate">Route ${b.route_id}</div>
+          <div class="text-on-surface-variant font-mono text-[10px] truncate">${b.bus_id} · ${b.passenger_occupancy}/45 pax</div>
         </div>
         <div class="text-right shrink-0">
-          <div class="font-mono">${b.speed.toFixed(1)} km/h</div>
-          <div class="${b.status === "delayed" ? "text-error" : "text-secondary-container"} text-[11px] font-semibold">
-            ${b.status === "delayed" ? `+${b.delay_min}m late` : "On time"}
+          <div class="font-mono font-bold">${b.speed_kmh} km/h</div>
+          <div class="${b.status === "delayed" ? "text-error" : "text-secondary"} text-[11px] font-semibold">
+            ${b.status === "delayed" ? `+${b.delay_min}m delay` : "On Time"}
           </div>
         </div>
-      </div>`).join("") || `<div class="text-on-surface-variant text-[12px]">No buses reporting.</div>`;
+      </div>`).join("") || `<div class="text-on-surface-variant text-[12px]">No active telemetry received.</div>`;
   } catch (e) {
-    el.innerHTML = `<div class="text-error text-[12px]">Couldn't reach the backend.</div>`;
+    el.innerHTML = `<div class="text-error text-[12px]">Telemetry link offline.</div>`;
   }
 }
 
-/* ---------------------------------------------------------------------
- * Wiring
- * ------------------------------------------------------------------- */
-document.querySelectorAll(".tab-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab-btn").forEach(b => {
-      b.classList.remove("border-secondary-container", "text-secondary-container");
-      b.classList.add("border-transparent", "text-on-surface-variant");
-    });
-    btn.classList.add("border-secondary-container", "text-secondary-container");
-    btn.classList.remove("border-transparent", "text-on-surface-variant");
-
-    document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
-    document.getElementById(`tab-${btn.dataset.tab}`).classList.remove("hidden");
-    if (btn.dataset.tab === "fleet") renderFleetTab();
+function switchTab(tab) {
+  document.querySelectorAll(".tab-btn").forEach(b => {
+    const isTarget = b.dataset.tab === tab;
+    b.classList.toggle("border-secondary-container", isTarget);
+    b.classList.toggle("text-secondary-container", isTarget);
+    b.classList.toggle("border-transparent", !isTarget);
+    b.classList.toggle("text-on-surface-variant", !isTarget);
   });
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
+  document.getElementById(`tab-${tab}`).classList.remove("hidden");
+  if (tab === "fleet") renderFleetTab();
+}
+
+/* =============================================================================
+ * UI Controls Setup
+ * ========================================================================== */
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => switchTab(btn.dataset.tab));
 });
 
 document.getElementById("events-toggle").addEventListener("click", () => {
   const panel = document.getElementById("events-panel");
-  panel.classList.toggle("panel-collapsed");
+  panel.classList.toggle("panel-collapsed-left");
   const icon = document.querySelector("#events-toggle .material-symbols-outlined");
-  panel.classList.contains("panel-collapsed")
-    ? (icon.textContent = "chevron_right", panel.style.transform = "translateX(calc(-100% + 40px))")
-    : (icon.textContent = "chevron_left", panel.style.transform = "");
+  icon.textContent = panel.classList.contains("panel-collapsed-left") ? "chevron_right" : "chevron_left";
 });
 
 document.getElementById("right-toggle").addEventListener("click", () => {
   const panel = document.getElementById("right-panel");
-  panel.classList.toggle("panel-collapsed");
+  panel.classList.toggle("panel-collapsed-right");
   const icon = document.querySelector("#right-toggle .material-symbols-outlined");
-  icon.textContent = panel.classList.contains("panel-collapsed") ? "chevron_left" : "chevron_right";
+  icon.textContent = panel.classList.contains("panel-collapsed-right") ? "chevron_left" : "chevron_right";
 });
 
 document.getElementById("legend-btn").addEventListener("click", (e) => {
@@ -474,15 +1021,21 @@ document.getElementById("legend-btn").addEventListener("click", (e) => {
   document.getElementById("legend-pop").classList.toggle("hidden");
 });
 document.addEventListener("click", () => document.getElementById("legend-pop").classList.add("hidden"));
+document.getElementById("optimize-btn").addEventListener("click", runOptimization);
 
-document.getElementById("simulate-btn").addEventListener("click", runOptimization);
-
+/* =============================================================================
+ * Dashboard Initialization
+ * ========================================================================== */
 (async function initDashboard() {
   connectLiveFeed();
   await loadLiveData();
   await runOptimization();
+  
+  // Set default active searched route to 500-D (Hebbal ↔ Silk Board)
+  setTimeout(() => searchAndSelectRoute("500-D"), 600);
+
   setInterval(loadLiveData, 15000);
-  setInterval(runOptimization, 20000);
+  setInterval(runOptimization, 30000);
 })();
 </script>
 </body>
